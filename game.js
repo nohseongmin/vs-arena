@@ -18,14 +18,23 @@ const FIGHTERS = {
              dmg: 14, spin: 1.6, len: 44, growth: 7, knockMul: 0.4,
              gimmick: "stuns; too heavy to knock", snd: { freq: 85, type: "sine" } },
   trident: { emoji: "🔱", face: "🤩", name: "TRIDENT", color: "#b5179e", body: "circle", r: 34,
-             dmg: 6, spin: 2.8, len: 60, growth: 4,
+             dmg: 7, spin: 2.8, len: 60, growth: 4,
              gimmick: "heals on hit", snd: { freq: 270, type: "triangle" } },
   drunk:   { emoji: "🍾", face: "🥴", name: "DRUNK GUY", color: "#ffb703", body: "circle", r: 32,
-             dmg: 7, spin: 2.4, len: 48, growth: 5,
-             gimmick: "staggers; 25% dodge", snd: { freq: 410, type: "sine" } },
+             dmg: 8, spin: 2.4, len: 48, growth: 5,
+             gimmick: "staggers; dodges hits", snd: { freq: 410, type: "sine" } },
   gravity: { emoji: "🌀", face: "🤯", name: "GRAVITY GUY", color: "#9d4edd", body: "diamond", r: 34,
-             dmg: 9, spin: 2.6, len: 50, growth: 5,
+             dmg: 11, spin: 2.6, len: 50, growth: 5,
              gimmick: "gravity well sucks you in", snd: { freq: 60, type: "sawtooth" } },
+  archer:  { emoji: "🏹", face: "🤠", name: "ARCHER", color: "#06d6a0", body: "circle", r: 32,
+             attack: "arrow", dmg: 6, rate: 1.7,
+             gimmick: "snipes; keeps distance", snd: { freq: 700, type: "triangle" } },
+  ninja:   { emoji: "✦", face: "🥷", name: "NINJA", color: "#4a4e69", body: "diamond", r: 30,
+             attack: "shuriken", dmg: 5, rate: 2.2, speedMul: 1.15,
+             gimmick: "triple shuriken fan", snd: { freq: 460, type: "square" } },
+  bomber:  { emoji: "💣", face: "😈", name: "BOMBER", color: "#ef476f", body: "square", r: 34,
+             attack: "bomb", dmg: 11, rate: 2.6,
+             gimmick: "lobbed bombs go BOOM", snd: { freq: 110, type: "sine" } },
 };
 const FIGHTER_KEYS = Object.keys(FIGHTERS);
 const MAX_LEN = 110;
@@ -61,6 +70,9 @@ const SFX = (() => {
     whoosh() { blip(120, 0.35, "sawtooth", 0.08, 0.25); },
     miss() { blip(600, 0.07, "triangle", 0.1, 1.4); },
     bounce() { blip(70, 0.04, "sine", 0.05, 0.7); },
+    shoot(w) { blip(w.snd.freq, 0.06, w.snd.type, 0.1, 1.6); },
+    block() { blip(900, 0.05, "square", 0.08, 0.8); },
+    boom() { blip(50, 0.4, "sawtooth", 0.22, 0.4); blip(130, 0.2, "square", 0.14, 0.3); },
     win() { [440, 554, 659, 880].forEach((f, i) => setTimeout(() => blip(f, 0.16, "triangle", 0.16, 1), i * 110)); },
     toggle() {
       muted = !muted;
@@ -115,6 +127,7 @@ const state = {
   cfg: readConfig(),
   fighters: [],
   particles: [],
+  projectiles: [],
   floats: [],
   shake: 0,
   running: false,
@@ -133,7 +146,7 @@ class Fighter {
     this.r = w.r;
     this.hp = cfg.hp;
     this.maxHp = cfg.hp;
-    this.baseSpeed = 205 * cfg.spd;
+    this.baseSpeed = 205 * cfg.spd * (w.speedMul || 1);
     this.x = AR.l + this.r + rng() * (AR.r - AR.l - this.r * 2);
     const third = (AR.b - AR.t) / 3;
     this.y = side === 0 ? AR.t + this.r + rng() * third : AR.b - this.r - rng() * third;
@@ -142,8 +155,8 @@ class Fighter {
     this.vy = Math.sin(ang) * this.baseSpeed;
     this.wAngle = rng() * Math.PI * 2;
     this.spinDir = rng() < 0.5 ? -1 : 1;
-    this.spin = w.spin;
-    this.wLen = w.len;
+    this.spin = w.spin || 0;
+    this.wLen = w.len || 0;
     this.cooldown = 0;
     this.flash = 0;
     // gimmick state
@@ -154,6 +167,8 @@ class Fighter {
     this.jerkTimer = 0;   // drunk: time to next stagger
     this.gravCycle = 0;   // gravity: time since last well
     this.gravActive = 0;  // gravity: well remaining
+    this.fireTimer = (w.rate || 1) * 0.6; // ranged: time to next throw
+    this.power = 0;       // ranged: grows per landed projectile
   }
 
   tip() {
@@ -166,8 +181,27 @@ class Fighter {
   update(dt, spd) {
     // movement personality
     let speedTarget = this.baseSpeed;
+    if ((this.w.attack || "orbit") === "orbit") {
+      // melee instinct: drift toward the enemy so kiters can't run forever
+      const foe = state.fighters.find((o) => o !== this);
+      if (foe) {
+        const dx = foe.x - this.x, dy = foe.y - this.y;
+        const d = Math.hypot(dx, dy) || 1;
+        this.vx += (dx / d) * 150 * dt;
+        this.vy += (dy / d) * 150 * dt;
+      }
+    }
     if (this.key === "axe") {
       speedTarget *= 1 + (1 - this.hp / this.maxHp) * 0.5; // rage: faster when hurt
+    }
+    if (this.key === "archer") {
+      // kiting: back off when the enemy closes in
+      const foe = state.fighters.find((o) => o !== this);
+      if (foe) {
+        const dx = this.x - foe.x, dy = this.y - foe.y;
+        const d = Math.hypot(dx, dy) || 1;
+        if (d < 110) { this.vx += (dx / d) * 140 * dt; this.vy += (dy / d) * 140 * dt; }
+      }
     }
     if (this.key === "drunk") {
       this.jerkTimer -= dt;
@@ -211,6 +245,7 @@ function startBattle(cfg) {
   state.fighters = [new Fighter(cfg.a, 0, cfg, rng), new Fighter(cfg.b, 1, cfg, rng)];
   state.rng = rng;
   state.particles = [];
+  state.projectiles = [];
   state.floats = [];
   state.shake = 0;
   state.running = true;
@@ -260,6 +295,45 @@ function step(dt) {
     }
   }
 
+  // ranged fighters: throw projectiles at the enemy (with target leading)
+  for (const [me, foe] of [[f1, f2], [f2, f1]]) {
+    const mode = me.w.attack || "orbit";
+    if (mode === "orbit") continue;
+    me.fireTimer -= dt;
+    if (me.fireTimer > 0 || me.stunTimer > 0) continue;
+    const scale = 1 + me.power * 0.06;
+    const dx = foe.x - me.x, dy = foe.y - me.y;
+    const d = Math.hypot(dx, dy) || 1;
+    // archers and ninjas can't shoot point-blank — they have to escape first
+    if (mode !== "bomb" && d < 130) {
+      me.fireTimer = 0.4;
+      continue;
+    }
+    me.fireTimer = me.w.rate;
+    const jitter = () => (state.rng() - 0.5) * 0.5; // imperfect aim — misses happen
+    if (mode === "arrow") {
+      const sp = 460, t = d / sp;
+      const a = Math.atan2(foe.y + foe.vy * t * 0.7 - me.y, foe.x + foe.vx * t * 0.7 - me.x) + jitter();
+      state.projectiles.push({ kind: "arrow", owner: me, x: me.x + Math.cos(a) * (me.r + 8),
+        y: me.y + Math.sin(a) * (me.r + 8), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 5 * scale, life: 3 });
+    } else if (mode === "shuriken") {
+      const sp = 430, t = d / sp;
+      const base = Math.atan2(foe.y + foe.vy * t * 0.7 - me.y, foe.x + foe.vx * t * 0.7 - me.x) + jitter();
+      for (const off of [-0.3, 0, 0.3]) {
+        const a = base + off;
+        state.projectiles.push({ kind: "shuriken", owner: me, x: me.x + Math.cos(a) * (me.r + 8),
+          y: me.y + Math.sin(a) * (me.r + 8), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 6 * scale, life: 3, spin: 0 });
+      }
+    } else if (mode === "bomb") {
+      const t = Math.max(0.45, d / 330);
+      const tx = foe.x + foe.vx * t * 0.5 + jitter() * 260, ty = foe.y + foe.vy * t * 0.5 + jitter() * 260;
+      state.projectiles.push({ kind: "bomb", owner: me, x: me.x, y: me.y - me.r,
+        vx: (tx - me.x) / t, vy: (ty - me.y) / t - 160, g: 520, fuse: 1.15, r: 9 * scale, life: 5 });
+    }
+    SFX.shoot(me.w);
+  }
+  updateProjectiles(dt);
+
   // body-body elastic bounce
   const dx = f2.x - f1.x, dy = f2.y - f1.y;
   const dist = Math.hypot(dx, dy) || 1;
@@ -306,7 +380,134 @@ function addFloat(x, y, text, color, big) {
   state.floats.push({ x, y, text, color, life: big ? 1.1 : 0.8, big: !!big });
 }
 
+/* ---------- Projectiles ---------- */
+function updateProjectiles(dt) {
+  const alive = [];
+  for (const p of state.projectiles) {
+    if (p.g) { p.vy += p.g * dt; p.fuse -= dt; }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt;
+    if (p.kind === "shuriken") p.spin += dt * 16;
+    const foe = state.fighters.find((f) => f !== p.owner);
+    let dead = false;
+    // spinning weapons act as shields: deflect shots, bat bombs back
+    if (foe && (foe.w.attack || "orbit") === "orbit" && foe.stunTimer <= 0) {
+      const bx = foe.x + Math.cos(foe.wAngle) * foe.r;
+      const by = foe.y + Math.sin(foe.wAngle) * foe.r;
+      const tp = foe.tip();
+      if (segPointDist(bx, by, tp.x, tp.y, p.x, p.y) < p.r + 12) {
+        if (p.kind === "bomb") {
+          const d2 = Math.hypot(p.x - foe.x, p.y - foe.y) || 1;
+          p.vx = ((p.x - foe.x) / d2) * 430;
+          p.vy = ((p.y - foe.y) / d2) * 430 - 80;
+        } else {
+          dead = true;
+        }
+        SFX.block();
+        for (let i = 0; i < 5; i++) {
+          const a = state.rng() * Math.PI * 2;
+          const sp2 = 60 + state.rng() * 120;
+          state.particles.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2 - 40,
+            life: 0.3 + state.rng() * 0.2, color: "#e8eaf6" });
+        }
+      }
+    }
+    if (dead) continue;
+    if (p.kind === "bomb") {
+      // bombs bounce around until the fuse runs out (or they touch the enemy)
+      if (p.x < AR.l + p.r) { p.x = AR.l + p.r; p.vx = Math.abs(p.vx) * 0.55; }
+      if (p.x > AR.r - p.r) { p.x = AR.r - p.r; p.vx = -Math.abs(p.vx) * 0.55; }
+      if (p.y > AR.b - p.r) { p.y = AR.b - p.r; p.vy = -Math.abs(p.vy) * 0.5; p.vx *= 0.8; }
+      if (p.y < AR.t + p.r) { p.y = AR.t + p.r; p.vy = Math.abs(p.vy); }
+      if (p.fuse <= 0 || (foe && Math.hypot(foe.x - p.x, foe.y - p.y) < foe.r + p.r)) {
+        explode(p, foe);
+        dead = true;
+      }
+    } else {
+      if (p.x < AR.l || p.x > AR.r || p.y < AR.t || p.y > AR.b) dead = true;
+      else if (foe && Math.hypot(foe.x - p.x, foe.y - p.y) < foe.r + p.r) {
+        projectileHit(p, foe);
+        dead = true;
+      }
+    }
+    if (p.life <= 0) dead = true;
+    if (!dead) alive.push(p);
+  }
+  state.projectiles = alive;
+}
+
+function projectileHit(p, foe) {
+  if (foe.iframes > 0) return; // fizzles on an invulnerable target
+  if (foe.key === "drunk" && state.rng() < 0.22) {
+    addFloat(foe.x, foe.y - foe.r - 26, "MISS!", "#ffd166", true);
+    SFX.miss();
+    return;
+  }
+  const o = p.owner;
+  const dmg = o.w.dmg + Math.min(4, Math.floor(o.power / 2));
+  foe.hp = Math.max(0, foe.hp - dmg);
+  foe.combo = 0;
+  foe.iframes = p.kind === "shuriken" ? 0.4 : 0.8;
+  foe.flash = 1;
+  addFloat(foe.x + 18, foe.y - 6, "-" + dmg, "#ff8f8f", false);
+  const kn = (p.kind === "shuriken" ? 70 : 90) * (foe.w.knockMul || 1);
+  const kd = Math.hypot(p.vx, p.vy) || 1;
+  foe.vx += (p.vx / kd) * kn;
+  foe.vy += (p.vy / kd) * kn;
+  o.power = Math.min(o.power + 1, 8); // thrown weapons grow stronger per hit
+  state.shake = 6;
+  SFX.hit(o.w);
+  for (let i = 0; i < 8; i++) {
+    const a = state.rng() * Math.PI * 2;
+    const sp2 = 50 + state.rng() * 140;
+    state.particles.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2 - 50,
+      life: 0.35 + state.rng() * 0.25, color: foe.w.color });
+  }
+}
+
+function explode(p, foe) {
+  state.shake = 13;
+  SFX.boom();
+  addFloat(p.x, p.y - 12, "BOOM!", "#ef476f", true);
+  for (let i = 0; i < 26; i++) {
+    const a = state.rng() * Math.PI * 2;
+    const sp2 = 90 + state.rng() * 240;
+    state.particles.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2 - 60,
+      life: 0.45 + state.rng() * 0.35, color: i % 3 ? "#f8961e" : "#ffcc33" });
+  }
+  // the blast doesn't care whose bomb it was — the owner just takes it lighter
+  const o = p.owner;
+  const R = 85;
+  let landed = false;
+  for (const f of state.fighters) {
+    if (f.iframes > 0) continue;
+    const d = Math.hypot(f.x - p.x, f.y - p.y);
+    if (d > R + f.r) continue;
+    if (f.key === "drunk" && state.rng() < 0.22) {
+      addFloat(f.x, f.y - f.r - 26, "MISS!", "#ffd166", true);
+      SFX.miss();
+      continue;
+    }
+    const fall = 1 - (Math.max(0, d - f.r) / R) * 0.5; // full damage center, half at edge
+    let dmg = Math.round((o.w.dmg + Math.min(4, Math.floor(o.power / 2))) * fall);
+    if (f === o) dmg = Math.round(dmg * 0.6);
+    f.hp = Math.max(0, f.hp - dmg);
+    f.combo = 0;
+    f.iframes = 0.8;
+    f.flash = 1;
+    addFloat(f.x + 18, f.y - 6, "-" + dmg, "#ffcc33", true);
+    const kd = d || 1;
+    const km = f.w.knockMul || 1;
+    f.vx += ((f.x - p.x) / kd) * 520 * km;
+    f.vy += ((f.y - p.y) / kd) * 520 * km;
+    if (f !== o) landed = true;
+  }
+  if (landed) o.power = Math.min(o.power + 1, 8);
+}
+
 function tryHit(atk, def) {
+  if ((atk.w.attack || "orbit") !== "orbit") return; // ranged fighters throw instead
   if (atk.cooldown > 0 || atk.stunTimer > 0) return;
   const sx = atk.x + Math.cos(atk.wAngle) * atk.r;
   const sy = atk.y + Math.sin(atk.wAngle) * atk.r;
@@ -315,7 +516,7 @@ function tryHit(atk, def) {
   if (def.iframes > 0) return; // recently hit — untouchable until recovered
 
   // drunk guy staggers out of the way 25% of the time
-  if (def.key === "drunk" && state.rng() < 0.18) {
+  if (def.key === "drunk" && state.rng() < 0.22) {
     addFloat(def.x, def.y - def.r - 26, "MISS!", "#ffd166", true);
     atk.cooldown = 0.45;
     SFX.miss();
@@ -355,7 +556,7 @@ function tryHit(atk, def) {
       addFloat(def.x, def.y - def.r - 26, "STUN!", "#ffffff", true);
       break;
     case "trident": {
-      const heal = Math.round(dmg * 0.35);
+      const heal = Math.round(dmg * 0.45);
       atk.hp = Math.min(atk.maxHp, atk.hp + heal);
       addFloat(atk.x, atk.y - atk.r - 26, "+" + heal, "#7ae582", false);
       break;
@@ -432,6 +633,7 @@ function draw() {
   drawHpBars();
 
   for (const f of state.fighters) drawFighter(f);
+  drawProjectiles();
 
   for (const pt of state.particles) {
     ctx.globalAlpha = Math.max(0, pt.life / 0.6);
@@ -543,25 +745,39 @@ function drawFighter(f) {
     ctx.stroke();
   }
 
-  // weapon handle
-  const t = f.tip();
-  ctx.strokeStyle = "rgba(255,255,255,0.35)";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(f.x + Math.cos(f.wAngle) * f.r, f.y + Math.sin(f.wAngle) * f.r);
-  ctx.lineTo(t.x, t.y);
-  ctx.stroke();
+  if ((f.w.attack || "orbit") === "orbit") {
+    // orbiting weapon: handle + emoji at the tip
+    const t = f.tip();
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(f.x + Math.cos(f.wAngle) * f.r, f.y + Math.sin(f.wAngle) * f.r);
+    ctx.lineTo(t.x, t.y);
+    ctx.stroke();
 
-  // weapon emoji at tip
-  const size = 22 + f.wLen * 0.3;
-  ctx.save();
-  ctx.translate(t.x, t.y);
-  ctx.rotate(f.wAngle + Math.PI / 4);
-  ctx.font = size + "px system-ui";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(f.w.emoji, 0, 0);
-  ctx.restore();
+    const size = 22 + f.wLen * 0.3;
+    ctx.save();
+    ctx.translate(t.x, t.y);
+    ctx.rotate(f.wAngle + Math.PI / 4);
+    ctx.font = size + "px system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(f.w.emoji, 0, 0);
+    ctx.restore();
+  } else {
+    // ranged: hold the weapon aimed at the enemy
+    const foe = state.fighters.find((o) => o !== f);
+    const a = foe ? Math.atan2(foe.y - f.y, foe.x - f.x) : 0;
+    ctx.save();
+    ctx.translate(f.x + Math.cos(a) * (f.r + 14), f.y + Math.sin(a) * (f.r + 14));
+    ctx.rotate(a + Math.PI / 4);
+    ctx.font = (22 + f.power * 2) + "px system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#e8eaf6";
+    ctx.fillText(f.w.emoji, 0, 0);
+    ctx.restore();
+  }
 
   // body: fighter color fill + side-colored ring
   const grad = ctx.createRadialGradient(f.x - 8, f.y - 10, 4, f.x, f.y, f.r * 1.2);
@@ -592,6 +808,51 @@ function drawFighter(f) {
   if (f.stunTimer > 0) {
     ctx.font = "20px system-ui";
     ctx.fillText("💫", f.x, f.y - f.r - 12);
+  }
+}
+
+function drawProjectiles() {
+  for (const p of state.projectiles) {
+    if (p.kind === "arrow") {
+      const a = Math.atan2(p.vy, p.vx);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(a);
+      ctx.strokeStyle = "#e8eaf6";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(6, 0); ctx.stroke();
+      ctx.fillStyle = "#06d6a0";
+      ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(3, -4.5); ctx.lineTo(3, 4.5); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else if (p.kind === "shuriken") {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.spin);
+      ctx.fillStyle = "#cdd3e0";
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const a = (i * Math.PI) / 2;
+        ctx.lineTo(Math.cos(a) * p.r * 1.7, Math.sin(a) * p.r * 1.7);
+        ctx.lineTo(Math.cos(a + Math.PI / 4) * p.r * 0.55, Math.sin(a + Math.PI / 4) * p.r * 0.55);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    } else { // bomb
+      ctx.font = Math.round(15 + p.r) + "px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("💣", p.x, p.y);
+      ctx.textBaseline = "alphabetic";
+      // fuse glow ramps up as it's about to blow
+      if (p.fuse < 0.5) {
+        ctx.strokeStyle = `rgba(255, 80, 80, ${0.9 - p.fuse})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r + 8, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
   }
 }
 
