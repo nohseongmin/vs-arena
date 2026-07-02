@@ -1,22 +1,34 @@
 "use strict";
 
-/* ---------- Weapon roster ---------- */
-const WEAPONS = {
-  pickaxe: { emoji: "⛏️", name: "PICKAXE", dmg: 13, spin: 2.6, len: 50, growth: 7,
-             gimmick: "3rd hit crits ×2",   snd: { freq: 220, type: "square" } },
-  angler:  { emoji: "🎣", name: "ANGLER",  dmg: 9,  spin: 3.4, len: 58, growth: 6,
-             gimmick: "hook pulls enemy",   snd: { freq: 520, type: "triangle" } },
-  sword:   { emoji: "🗡️", name: "SWORD",  dmg: 11, spin: 3.0, len: 52, growth: 7,
-             gimmick: "combo until hit",    snd: { freq: 340, type: "sawtooth" } },
-  axe:     { emoji: "🪓", name: "AXE",     dmg: 17, spin: 2.0, len: 46, growth: 9,
-             gimmick: "rages when hurt",    snd: { freq: 150, type: "square" } },
-  hammer:  { emoji: "🔨", name: "HAMMER",  dmg: 20, spin: 1.6, len: 44, growth: 10,
-             gimmick: "smash stuns enemy",  snd: { freq: 85,  type: "sine" } },
-  trident: { emoji: "🔱", name: "TRIDENT", dmg: 10, spin: 2.8, len: 60, growth: 5,
-             gimmick: "heals on hit",       snd: { freq: 270, type: "triangle" } },
+/* ---------- Fighter roster: body + movement personality + attack gimmick ---------- */
+const FIGHTERS = {
+  pickaxe: { emoji: "⛏️", face: "😠", name: "PICKAXE", color: "#8ecae6", body: "circle", r: 34,
+             dmg: 9, spin: 2.6, len: 50, growth: 5,
+             gimmick: "3rd hit crits ×2", snd: { freq: 220, type: "square" } },
+  angler:  { emoji: "🎣", face: "😏", name: "ANGLER", color: "#90be6d", body: "circle", r: 34,
+             dmg: 7, spin: 3.4, len: 58, growth: 4,
+             gimmick: "hook pulls enemy", snd: { freq: 520, type: "triangle" } },
+  sword:   { emoji: "🗡️", face: "😎", name: "SWORD", color: "#f9c74f", body: "circle", r: 34,
+             dmg: 7, spin: 3.0, len: 52, growth: 5,
+             gimmick: "combo until hit", snd: { freq: 340, type: "sawtooth" } },
+  axe:     { emoji: "🪓", face: "🤬", name: "AXE", color: "#f8961e", body: "tri", r: 34,
+             dmg: 10, spin: 2.0, len: 46, growth: 6,
+             gimmick: "rage: dmg+speed when hurt", snd: { freq: 150, type: "square" } },
+  hammer:  { emoji: "🔨", face: "😤", name: "HAMMER", color: "#adb5bd", body: "square", r: 38,
+             dmg: 14, spin: 1.6, len: 44, growth: 7, knockMul: 0.4,
+             gimmick: "stuns; too heavy to knock", snd: { freq: 85, type: "sine" } },
+  trident: { emoji: "🔱", face: "🤩", name: "TRIDENT", color: "#b5179e", body: "circle", r: 34,
+             dmg: 6, spin: 2.8, len: 60, growth: 4,
+             gimmick: "heals on hit", snd: { freq: 270, type: "triangle" } },
+  drunk:   { emoji: "🍾", face: "🥴", name: "DRUNK GUY", color: "#ffb703", body: "circle", r: 32,
+             dmg: 7, spin: 2.4, len: 48, growth: 5,
+             gimmick: "staggers; 25% dodge", snd: { freq: 410, type: "sine" } },
+  gravity: { emoji: "🌀", face: "🤯", name: "GRAVITY GUY", color: "#9d4edd", body: "diamond", r: 34,
+             dmg: 9, spin: 2.6, len: 50, growth: 5,
+             gimmick: "gravity well sucks you in", snd: { freq: 60, type: "sawtooth" } },
 };
-const WEAPON_KEYS = Object.keys(WEAPONS);
-const MAX_LEN = 130;
+const FIGHTER_KEYS = Object.keys(FIGHTERS);
+const MAX_LEN = 110;
 
 /* ---------- Sound (procedural WebAudio, no assets) ---------- */
 const SFX = (() => {
@@ -46,6 +58,8 @@ const SFX = (() => {
     unlock() { if (!muted) try { ac(); } catch {} },
     hit(w) { blip(w.snd.freq, 0.09, w.snd.type, 0.14, 0.45); },
     crit(w) { blip(w.snd.freq * 1.5, 0.14, w.snd.type, 0.2, 0.3); blip(w.snd.freq * 2.2, 0.1, "square", 0.12, 0.6); },
+    whoosh() { blip(120, 0.35, "sawtooth", 0.08, 0.25); },
+    miss() { blip(600, 0.07, "triangle", 0.1, 1.4); },
     bounce() { blip(70, 0.04, "sine", 0.05, 0.7); },
     win() { [440, 554, 659, 880].forEach((f, i) => setTimeout(() => blip(f, 0.16, "triangle", 0.16, 1), i * 110)); },
     toggle() {
@@ -74,12 +88,12 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 function readConfig() {
   const p = new URLSearchParams(location.search);
-  const pick = (v, fallback) => (WEAPON_KEYS.includes(v) ? v : fallback);
+  const pick = (v, fallback) => (FIGHTER_KEYS.includes(v) ? v : fallback);
   return {
     a: pick(p.get("a"), "pickaxe"),
     b: pick(p.get("b"), "angler"),
     hp: clamp(parseInt(p.get("hp"), 10) || 100, 50, 300),
-    spd: clamp(parseFloat(p.get("spd")) || 1, 0.5, 2),
+    spd: clamp(parseFloat(p.get("spd")) || 1, 0.5, 3),
     seed: (parseInt(p.get("seed"), 10) >>> 0) || ((Math.random() * 4294967296) >>> 0),
     auto: p.has("a") || p.has("b") || p.has("seed"),
   };
@@ -89,7 +103,8 @@ function readConfig() {
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const W = canvas.width, H = canvas.height;
-const ARENA_TOP = 96; // space for HP bars
+// tight arena box — small field, high hit density
+const AR = { l: 44, t: 150, r: W - 44, b: H - 80 };
 
 const el = (id) => document.getElementById(id);
 const overlay = el("overlay");
@@ -110,17 +125,18 @@ const state = {
 
 class Fighter {
   constructor(key, side, cfg, rng) {
-    const w = WEAPONS[key];
+    const w = FIGHTERS[key];
     this.key = key;
     this.w = w;
     this.side = side; // 0 = red (top), 1 = blue (bottom)
-    this.color = side === 0 ? "#ff5d5d" : "#5da9ff";
-    this.r = 30;
+    this.sideColor = side === 0 ? "#ff5d5d" : "#5da9ff";
+    this.r = w.r;
     this.hp = cfg.hp;
     this.maxHp = cfg.hp;
     this.baseSpeed = 205 * cfg.spd;
-    this.x = W * (0.3 + rng() * 0.4);
-    this.y = side === 0 ? ARENA_TOP + 90 + rng() * 60 : H - 120 - rng() * 60;
+    this.x = AR.l + this.r + rng() * (AR.r - AR.l - this.r * 2);
+    const third = (AR.b - AR.t) / 3;
+    this.y = side === 0 ? AR.t + this.r + rng() * third : AR.b - this.r - rng() * third;
     const ang = rng() * Math.PI * 2;
     this.vx = Math.cos(ang) * this.baseSpeed;
     this.vy = Math.sin(ang) * this.baseSpeed;
@@ -131,9 +147,13 @@ class Fighter {
     this.cooldown = 0;
     this.flash = 0;
     // gimmick state
-    this.hitCount = 0;      // pickaxe: every 3rd hit crits
-    this.combo = 0;         // sword: stacks per landed hit, breaks when hit
-    this.stunTimer = 0;     // hammer victim: weapon frozen
+    this.hitCount = 0;    // pickaxe: every 3rd hit crits
+    this.combo = 0;       // sword: stacks per landed hit, breaks when hit
+    this.stunTimer = 0;   // hammer victim: weapon frozen
+    this.iframes = 0;     // post-hit invulnerability — paces the whole fight
+    this.jerkTimer = 0;   // drunk: time to next stagger
+    this.gravCycle = 0;   // gravity: time since last well
+    this.gravActive = 0;  // gravity: well remaining
   }
 
   tip() {
@@ -144,17 +164,33 @@ class Fighter {
   }
 
   update(dt, spd) {
+    // movement personality
+    let speedTarget = this.baseSpeed;
+    if (this.key === "axe") {
+      speedTarget *= 1 + (1 - this.hp / this.maxHp) * 0.5; // rage: faster when hurt
+    }
+    if (this.key === "drunk") {
+      this.jerkTimer -= dt;
+      if (this.jerkTimer <= 0) {
+        this.jerkTimer = 0.35 + state.rng() * 0.7;
+        const a = (state.rng() * 2 - 1) * 2.2; // stagger: lurch in a random direction
+        const c = Math.cos(a), s = Math.sin(a);
+        const nvx = this.vx * c - this.vy * s;
+        this.vy = this.vx * s + this.vy * c;
+        this.vx = nvx;
+      }
+    }
+
     this.x += this.vx * dt;
     this.y += this.vy * dt;
-    // walls
-    if (this.x < this.r) { this.x = this.r; this.vx = Math.abs(this.vx); }
-    if (this.x > W - this.r) { this.x = W - this.r; this.vx = -Math.abs(this.vx); }
-    if (this.y < ARENA_TOP + this.r) { this.y = ARENA_TOP + this.r; this.vy = Math.abs(this.vy); }
-    if (this.y > H - this.r) { this.y = H - this.r; this.vy = -Math.abs(this.vy); }
-    // relax speed back to base after knockbacks
+    // arena walls
+    if (this.x < AR.l + this.r) { this.x = AR.l + this.r; this.vx = Math.abs(this.vx); }
+    if (this.x > AR.r - this.r) { this.x = AR.r - this.r; this.vx = -Math.abs(this.vx); }
+    if (this.y < AR.t + this.r) { this.y = AR.t + this.r; this.vy = Math.abs(this.vy); }
+    if (this.y > AR.b - this.r) { this.y = AR.b - this.r; this.vy = -Math.abs(this.vy); }
+    // relax speed back to target after knockbacks
     const sp = Math.hypot(this.vx, this.vy) || 1;
-    const target = this.baseSpeed;
-    const k = 1 + (target / sp - 1) * Math.min(1, dt * 2);
+    const k = 1 + (speedTarget / sp - 1) * Math.min(1, dt * 2);
     this.vx *= k; this.vy *= k;
 
     if (this.stunTimer > 0) {
@@ -163,6 +199,7 @@ class Fighter {
       this.wAngle += this.spin * this.spinDir * spd * dt;
     }
     this.cooldown = Math.max(0, this.cooldown - dt);
+    this.iframes = Math.max(0, this.iframes - dt);
     this.flash = Math.max(0, this.flash - dt * 3);
   }
 }
@@ -204,7 +241,26 @@ function step(dt) {
   f2.update(dt, spd);
   state.time += dt;
 
-  // ball-ball elastic bounce
+  // gravity guy: periodic well that drags the opponent in
+  for (const [me, foe] of [[f1, f2], [f2, f1]]) {
+    if (me.key !== "gravity") continue;
+    me.gravCycle += dt;
+    if (me.gravCycle >= 3.2) {
+      me.gravCycle = 0;
+      me.gravActive = 1.2;
+      addFloat(me.x, me.y - me.r - 26, "GRAVITY WELL!", "#c77dff", true);
+      SFX.whoosh();
+    }
+    if (me.gravActive > 0) {
+      me.gravActive = Math.max(0, me.gravActive - dt);
+      const dx = me.x - foe.x, dy = me.y - foe.y;
+      const d = Math.hypot(dx, dy) || 1;
+      foe.vx += (dx / d) * 520 * dt;
+      foe.vy += (dy / d) * 520 * dt;
+    }
+  }
+
+  // body-body elastic bounce
   const dx = f2.x - f1.x, dy = f2.y - f1.y;
   const dist = Math.hypot(dx, dy) || 1;
   const minDist = f1.r + f2.r;
@@ -224,7 +280,7 @@ function step(dt) {
   tryHit(f1, f2);
   tryHit(f2, f1);
 
-  // particles
+  // particles & floating text
   for (const pt of state.particles) {
     pt.x += pt.vx * dt; pt.y += pt.vy * dt;
     pt.vy += 300 * dt;
@@ -256,11 +312,20 @@ function tryHit(atk, def) {
   const sy = atk.y + Math.sin(atk.wAngle) * atk.r;
   const t = atk.tip();
   if (segPointDist(sx, sy, t.x, t.y, def.x, def.y) >= def.r) return;
+  if (def.iframes > 0) return; // recently hit — untouchable until recovered
 
-  /* --- per-weapon gimmicks --- */
+  // drunk guy staggers out of the way 25% of the time
+  if (def.key === "drunk" && state.rng() < 0.18) {
+    addFloat(def.x, def.y - def.r - 26, "MISS!", "#ffd166", true);
+    atk.cooldown = 0.45;
+    SFX.miss();
+    return;
+  }
+
+  /* --- per-fighter attack gimmicks --- */
   let dmg = atk.w.dmg;
   let crit = false;
-  let knock = 320;   // push away from weapon tip
+  let knock = 390;   // push away from weapon tip
   let pull = false;  // angler reverses knockback
 
   switch (atk.key) {
@@ -274,7 +339,7 @@ function tryHit(atk, def) {
       break;
     case "sword":
       // combo stacks with every landed hit; resets when the sword itself gets hit
-      dmg += atk.combo * 3;
+      dmg += atk.combo * 4;
       if (atk.combo >= 1) addFloat(atk.x, atk.y - atk.r - 26, "COMBO ×" + (atk.combo + 1), "#f9c74f", atk.combo >= 3);
       atk.combo = Math.min(atk.combo + 1, 4);
       break;
@@ -285,7 +350,7 @@ function tryHit(atk, def) {
       break;
     }
     case "hammer":
-      def.stunTimer = 0.9;
+      def.stunTimer = 0.7;
       knock = 480;
       addFloat(def.x, def.y - def.r - 26, "STUN!", "#ffffff", true);
       break;
@@ -304,16 +369,18 @@ function tryHit(atk, def) {
 
   def.hp = Math.max(0, def.hp - dmg);
   def.combo = 0; // taking a hit breaks the sword's combo
+  def.iframes = 0.85;
   def.flash = 1;
-  atk.cooldown = 0.35;
   addFloat(def.x + 18, def.y - 6, "-" + dmg, crit ? "#ffcc33" : "#ff8f8f", crit);
 
-  // knockback: away from weapon tip — or toward the attacker for angler's hook
+  // knockback: away from weapon tip — or toward the attacker for angler's hook.
+  // heavy fighters (hammer) resist being knocked around.
+  const km = def.w.knockMul || 1;
   const kx = pull ? atk.x - def.x : def.x - t.x;
   const ky = pull ? atk.y - def.y : def.y - t.y;
   const kd = Math.hypot(kx, ky) || 1;
-  def.vx += (kx / kd) * knock;
-  def.vy += (ky / kd) * knock;
+  def.vx += (kx / kd) * knock * km;
+  def.vy += (ky / kd) * knock * km;
 
   // the meme mechanic: weapon grows on every hit
   atk.wLen = Math.min(MAX_LEN, atk.wLen + atk.w.growth);
@@ -328,7 +395,7 @@ function tryHit(atk, def) {
       x: t.x, y: t.y,
       vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2 - 60,
       life: 0.4 + state.rng() * 0.3,
-      color: def.color,
+      color: def.w.color,
     });
   }
 }
@@ -339,18 +406,27 @@ function draw() {
   if (state.shake > 0) {
     ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
   }
-  ctx.clearRect(-10, -10, W + 20, H + 20);
+  ctx.clearRect(-12, -12, W + 24, H + 24);
 
-  // arena background
+  // backdrop
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, "#12152a");
   g.addColorStop(1, "#0a0c16");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+
+  // arena box
+  ctx.fillStyle = "#0d1020";
+  roundRectPath(AR.l - 6, AR.t - 6, AR.r - AR.l + 12, AR.b - AR.t + 12, 18);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255, 204, 51, 0.35)";
+  ctx.lineWidth = 3;
+  roundRectPath(AR.l - 6, AR.t - 6, AR.r - AR.l + 12, AR.b - AR.t + 12, 18);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
   ctx.lineWidth = 1;
-  for (let y = ARENA_TOP; y < H; y += 48) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  for (let y = AR.t + 40; y < AR.b; y += 44) {
+    ctx.beginPath(); ctx.moveTo(AR.l, y); ctx.lineTo(AR.r, y); ctx.stroke();
   }
 
   drawHpBars();
@@ -383,7 +459,7 @@ function draw() {
   ctx.fillStyle = "rgba(255,255,255,0.25)";
   ctx.font = "11px monospace";
   ctx.textAlign = "right";
-  ctx.fillText("seed " + state.cfg.seed, W - 8, H - 8);
+  ctx.fillText("seed " + state.cfg.seed, W - 8, H - 10);
   ctx.restore();
 }
 
@@ -394,30 +470,30 @@ function drawHpBars() {
   ctx.font = "700 13px system-ui";
 
   const bars = [
-    { f: f1, x: pad, align: "left" },
-    { f: f2, x: pad * 2 + half, align: "right" },
+    { f: f1, x: pad },
+    { f: f2, x: pad * 2 + half },
   ];
   for (const { f, x } of bars) {
     ctx.fillStyle = "rgba(255,255,255,0.08)";
-    roundRect(x, 40, half, barH, 8);
+    roundRectPath(x, 46, half, barH, 8);
     ctx.fill();
     const ratio = f.hp / f.maxHp;
-    ctx.fillStyle = f.color;
-    if (ratio > 0) { roundRect(x, 40, half * ratio, barH, 8); ctx.fill(); }
+    ctx.fillStyle = f.sideColor;
+    if (ratio > 0) { roundRectPath(x, 46, half * ratio, barH, 8); ctx.fill(); }
     ctx.fillStyle = "#e8eaf6";
-    ctx.fillText(f.w.emoji + " " + f.w.name, x, 32);
+    ctx.fillText(f.w.face + " " + f.w.name, x, 38);
     ctx.fillStyle = "rgba(255,255,255,0.7)";
     ctx.font = "600 11px system-ui";
-    ctx.fillText(Math.ceil(f.hp) + " HP", x, 70);
+    ctx.fillText(Math.ceil(f.hp) + " HP", x, 76);
     ctx.font = "700 13px system-ui";
   }
   ctx.fillStyle = "#ffcc33";
   ctx.font = "900 15px system-ui";
   ctx.textAlign = "center";
-  ctx.fillText("VS", W / 2, 54);
+  ctx.fillText("VS", W / 2, 60);
 }
 
-function roundRect(x, y, w, h, r) {
+function roundRectPath(x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -427,8 +503,47 @@ function roundRect(x, y, w, h, r) {
   ctx.closePath();
 }
 
+function bodyPath(f) {
+  const { x, y, r } = f;
+  ctx.beginPath();
+  switch (f.w.body) {
+    case "square":
+      roundRectPath(x - r * 0.92, y - r * 0.92, r * 1.84, r * 1.84, 10);
+      break;
+    case "tri":
+      ctx.moveTo(x, y - r * 1.1);
+      ctx.lineTo(x + r, y + r * 0.75);
+      ctx.lineTo(x - r, y + r * 0.75);
+      ctx.closePath();
+      break;
+    case "diamond":
+      ctx.moveTo(x, y - r * 1.15);
+      ctx.lineTo(x + r * 1.15, y);
+      ctx.lineTo(x, y + r * 1.15);
+      ctx.lineTo(x - r * 1.15, y);
+      ctx.closePath();
+      break;
+    default:
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+  }
+}
+
 function drawFighter(f) {
-  // handle line
+  // gravity well ring
+  if (f.gravActive > 0) {
+    const pulse = 1 + Math.sin(state.time * 14) * 0.12;
+    ctx.strokeStyle = "rgba(157, 78, 221, 0.55)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, (f.r + 22) * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(157, 78, 221, 0.25)";
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, (f.r + 44) * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // weapon handle
   const t = f.tip();
   ctx.strokeStyle = "rgba(255,255,255,0.35)";
   ctx.lineWidth = 3;
@@ -438,7 +553,7 @@ function drawFighter(f) {
   ctx.stroke();
 
   // weapon emoji at tip
-  const size = 22 + f.wLen * 0.28;
+  const size = 22 + f.wLen * 0.3;
   ctx.save();
   ctx.translate(t.x, t.y);
   ctx.rotate(f.wAngle + Math.PI / 4);
@@ -448,23 +563,35 @@ function drawFighter(f) {
   ctx.fillText(f.w.emoji, 0, 0);
   ctx.restore();
 
-  // ball
-  const grad = ctx.createRadialGradient(f.x - 8, f.y - 10, 4, f.x, f.y, f.r);
-  grad.addColorStop(0, "#ffffff33");
-  grad.addColorStop(1, f.color);
+  // body: fighter color fill + side-colored ring
+  const grad = ctx.createRadialGradient(f.x - 8, f.y - 10, 4, f.x, f.y, f.r * 1.2);
+  grad.addColorStop(0, "#ffffff44");
+  grad.addColorStop(1, f.w.color);
   ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+  bodyPath(f);
   ctx.fill();
+  ctx.strokeStyle = f.sideColor;
+  ctx.lineWidth = 3.5;
+  bodyPath(f);
+  ctx.stroke();
   if (f.flash > 0) {
     ctx.strokeStyle = `rgba(255,255,255,${f.flash})`;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 5;
+    bodyPath(f);
     ctx.stroke();
   }
+
+  // face
+  ctx.font = Math.round(f.r * 1.05) + "px system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const wob = f.key === "drunk" ? Math.sin(state.time * 6) * 4 : 0;
+  ctx.fillText(f.w.face, f.x + wob, f.y + (f.w.body === "tri" ? 8 : 1));
+  ctx.textBaseline = "alphabetic";
+
   if (f.stunTimer > 0) {
     ctx.font = "20px system-ui";
-    ctx.textAlign = "center";
-    ctx.fillText("💫", f.x, f.y - f.r - 10);
+    ctx.fillText("💫", f.x, f.y - f.r - 12);
   }
 }
 
@@ -494,14 +621,14 @@ setInterval(() => {
 function buildPickers() {
   for (const [gridId, side] of [["gridA", "a"], ["gridB", "b"]]) {
     const grid = el(gridId);
-    for (const key of WEAPON_KEYS) {
-      const w = WEAPONS[key];
+    for (const key of FIGHTER_KEYS) {
+      const w = FIGHTERS[key];
       const btn = document.createElement("button");
       btn.className = "weapon-btn";
       btn.dataset.key = key;
       const em = document.createElement("span");
       em.className = "emoji";
-      em.textContent = w.emoji;
+      em.textContent = w.face + w.emoji;
       const nm = document.createElement("span");
       nm.textContent = w.name;
       const gm = document.createElement("span");
@@ -535,14 +662,14 @@ function currentConfig() {
     a: state.cfg.a,
     b: state.cfg.b,
     hp: clamp(parseInt(el("hp").value, 10) || 100, 50, 300),
-    spd: clamp(parseFloat(el("spd").value) || 1, 0.5, 2),
+    spd: clamp(parseFloat(el("spd").value) || 1, 0.5, 3),
     seed: (parseInt(el("seed").value, 10) >>> 0) || 1,
   };
 }
 
 function showWinner() {
   const w = state.winner;
-  el("winnerEmoji").textContent = w.w.emoji;
+  el("winnerEmoji").textContent = w.w.face + w.w.emoji;
   el("winnerText").textContent = w.w.name + " WINS!";
   overlay.classList.remove("hidden");
 }
