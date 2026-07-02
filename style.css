@@ -1,0 +1,159 @@
+:root {
+  --bg: #0d0f1a;
+  --panel: #171a2b;
+  --panel2: #1f2340;
+  --text: #e8eaf6;
+  --muted: #8b90b3;
+  --accent: #ffcc33;
+  --red: #ff5d5d;
+  --blue: #5da9ff;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: radial-gradient(1200px 800px at 50% -200px, #1a1e38, var(--bg));
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+header { text-align: center; padding: 18px 12px 8px; }
+h1 { font-size: 2rem; letter-spacing: 4px; }
+.tagline { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+
+main {
+  width: 100%;
+  max-width: 460px;
+  padding: 10px 12px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+#stage { position: relative; width: 100%; }
+#game {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--radius);
+  background: #0a0c16;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5);
+}
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(10, 12, 22, 0.78);
+  border-radius: var(--radius);
+  backdrop-filter: blur(3px);
+}
+#overlay.hidden { display: none; }
+.winner-emoji { font-size: 5rem; animation: pop .5s cubic-bezier(.2,1.6,.4,1); }
+.winner-text { font-size: 1.6rem; font-weight: 800; letter-spacing: 2px; color: var(--accent); text-align: center; }
+.overlay-buttons { display: flex; gap: 8px; margin-top: 6px; }
+@keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
+
+#controls {
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.picker-row { display: flex; align-items: stretch; gap: 8px; }
+.picker { flex: 1; }
+.picker-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px; text-align: center; }
+.side-a { color: var(--red); }
+.side-b { color: var(--blue); }
+.vs-label { align-self: center; font-weight: 900; color: var(--muted); font-size: 0.9rem; }
+
+.weapon-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.weapon-btn {
+  background: var(--panel2);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  padding: 7px 2px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transition: transform .08s, border-color .08s;
+}
+.weapon-btn .emoji { font-size: 1.4rem; }
+.weapon-btn:hover { transform: translateY(-2px); }
+#gridA .weapon-btn.selected { border-color: var(--red); background: #2b1d2a; }
+#gridB .weapon-btn.selected { border-color: var(--blue); background: #1a2440; }
+
+.sliders { display: flex; flex-direction: column; gap: 8px; }
+.sliders label { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+.sliders label span:first-of-type { color: var(--text); min-width: 34px; text-align: right; }
+.sliders input[type="range"] { flex: 1; accent-color: var(--accent); }
+.seed-wrap { flex: 1; display: flex; gap: 6px; }
+#seed {
+  flex: 1; min-width: 0;
+  background: var(--panel2);
+  border: 1px solid #2c3157;
+  border-radius: 8px;
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 0.9rem;
+}
+
+.action-row { display: flex; gap: 8px; }
+.btn {
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--panel2);
+  transition: transform .08s, filter .08s;
+}
+.btn:hover { transform: translateY(-1px); filter: brightness(1.15); }
+.btn.primary { background: var(--accent); color: #1a1400; }
+.btn.big { flex: 1; padding: 13px; font-size: 1.05rem; }
+.btn.tiny { padding: 6px 10px; }
+
+.ad-slot {
+  border: 1px dashed #2c3157;
+  border-radius: var(--radius);
+  color: #3d4370;
+  text-align: center;
+  padding: 26px 0;
+  font-size: 0.75rem;
+  letter-spacing: 2px;
+}
+
+footer { color: var(--muted); font-size: 0.75rem; padding: 8px 12px 26px; text-align: center; }
+
+#toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: #1a1400;
+  font-weight: 700;
+  padding: 10px 20px;
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.4);
+  transition: opacity .3s;
+}
+#toast.hidden { opacity: 0; pointer-events: none; }

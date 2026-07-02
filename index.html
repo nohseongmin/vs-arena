@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VS Arena — Weapon Battle Simulator</title>
+  <meta name="description" content="Run the viral weapon battle simulations yourself. Pick two fighters, watch physics decide, share the exact battle with a link.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>⚔️ VS ARENA</h1>
+    <p class="tagline">Build a matchup. Run the sim. Share the battle.</p>
+  </header>
+
+  <main>
+    <div id="stage">
+      <canvas id="game" width="405" height="720"></canvas>
+      <div id="overlay" class="hidden">
+        <div class="winner-emoji" id="winnerEmoji"></div>
+        <div class="winner-text" id="winnerText"></div>
+        <div class="overlay-buttons">
+          <button id="btnReplay" class="btn secondary">🔁 Replay</button>
+          <button id="btnRematch" class="btn primary">⚔️ Rematch</button>
+          <button id="btnShareOverlay" class="btn secondary">🔗 Share</button>
+        </div>
+      </div>
+    </div>
+
+    <section id="controls">
+      <div class="picker-row">
+        <div class="picker" id="pickerA">
+          <div class="picker-label side-a">FIGHTER 1</div>
+          <div class="weapon-grid" id="gridA"></div>
+        </div>
+        <div class="vs-label">VS</div>
+        <div class="picker" id="pickerB">
+          <div class="picker-label side-b">FIGHTER 2</div>
+          <div class="weapon-grid" id="gridB"></div>
+        </div>
+      </div>
+
+      <div class="sliders">
+        <label>HP <span id="hpVal">100</span>
+          <input type="range" id="hp" min="50" max="300" step="10" value="100">
+        </label>
+        <label>Speed <span id="spdVal">1.0</span>x
+          <input type="range" id="spd" min="0.5" max="2" step="0.1" value="1">
+        </label>
+        <label class="seed-label">Seed
+          <span class="seed-wrap">
+            <input type="number" id="seed" min="0" max="4294967295">
+            <button id="btnDice" class="btn tiny" title="Random seed">🎲</button>
+          </span>
+        </label>
+      </div>
+
+      <div class="action-row">
+        <button id="btnFight" class="btn primary big">▶ FIGHT</button>
+        <button id="btnShare" class="btn secondary big">🔗 Copy Link</button>
+      </div>
+    </section>
+
+    <div class="ad-slot">AD SLOT (reserved)</div>
+  </main>
+
+  <footer>
+    <p>Same seed = same battle. Share a link, your friend sees the exact fight.</p>
+  </footer>
+
+  <div id="toast" class="hidden"></div>
+  <script src="game.js"></script>
+</body>
+</html>
