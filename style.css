@@ -95,6 +95,7 @@ main {
   transition: transform .08s, border-color .08s;
 }
 .weapon-btn .emoji { font-size: 1.4rem; }
+.weapon-btn .gimmick { font-size: 0.58rem; color: var(--muted); line-height: 1.1; }
 .weapon-btn:hover { transform: translateY(-2px); }
 #gridA .weapon-btn.selected { border-color: var(--red); background: #2b1d2a; }
 #gridB .weapon-btn.selected { border-color: var(--blue); background: #1a2440; }

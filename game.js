@@ -2,15 +2,61 @@
 
 /* ---------- Weapon roster ---------- */
 const WEAPONS = {
-  pickaxe: { emoji: "⛏️", name: "PICKAXE", dmg: 13, spin: 2.6, len: 50, growth: 7 },
-  angler:  { emoji: "🎣", name: "ANGLER",  dmg: 9,  spin: 3.4, len: 58, growth: 6 },
-  sword:   { emoji: "🗡️", name: "SWORD",  dmg: 11, spin: 3.0, len: 52, growth: 7 },
-  axe:     { emoji: "🪓", name: "AXE",     dmg: 17, spin: 2.0, len: 46, growth: 9 },
-  hammer:  { emoji: "🔨", name: "HAMMER",  dmg: 20, spin: 1.6, len: 44, growth: 10 },
-  trident: { emoji: "🔱", name: "TRIDENT", dmg: 10, spin: 2.8, len: 60, growth: 5 },
+  pickaxe: { emoji: "⛏️", name: "PICKAXE", dmg: 13, spin: 2.6, len: 50, growth: 7,
+             gimmick: "3rd hit crits ×2",   snd: { freq: 220, type: "square" } },
+  angler:  { emoji: "🎣", name: "ANGLER",  dmg: 9,  spin: 3.4, len: 58, growth: 6,
+             gimmick: "hook pulls enemy",   snd: { freq: 520, type: "triangle" } },
+  sword:   { emoji: "🗡️", name: "SWORD",  dmg: 11, spin: 3.0, len: 52, growth: 7,
+             gimmick: "combo until hit",    snd: { freq: 340, type: "sawtooth" } },
+  axe:     { emoji: "🪓", name: "AXE",     dmg: 17, spin: 2.0, len: 46, growth: 9,
+             gimmick: "rages when hurt",    snd: { freq: 150, type: "square" } },
+  hammer:  { emoji: "🔨", name: "HAMMER",  dmg: 20, spin: 1.6, len: 44, growth: 10,
+             gimmick: "smash stuns enemy",  snd: { freq: 85,  type: "sine" } },
+  trident: { emoji: "🔱", name: "TRIDENT", dmg: 10, spin: 2.8, len: 60, growth: 5,
+             gimmick: "heals on hit",       snd: { freq: 270, type: "triangle" } },
 };
 const WEAPON_KEYS = Object.keys(WEAPONS);
 const MAX_LEN = 130;
+
+/* ---------- Sound (procedural WebAudio, no assets) ---------- */
+const SFX = (() => {
+  let ctx = null;
+  let muted = localStorage.getItem("vsarena_muted") === "1";
+  function ac() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+  function blip(freq, dur, type, vol, slide) {
+    if (muted || document.hidden) return;
+    try {
+      const c = ac();
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, c.currentTime);
+      o.frequency.exponentialRampToValueAtTime(Math.max(30, freq * slide), c.currentTime + dur);
+      g.gain.setValueAtTime(vol, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur);
+      o.connect(g).connect(c.destination);
+      o.start();
+      o.stop(c.currentTime + dur);
+    } catch { /* audio not available: keep the sim silent */ }
+  }
+  return {
+    unlock() { if (!muted) try { ac(); } catch {} },
+    hit(w) { blip(w.snd.freq, 0.09, w.snd.type, 0.14, 0.45); },
+    crit(w) { blip(w.snd.freq * 1.5, 0.14, w.snd.type, 0.2, 0.3); blip(w.snd.freq * 2.2, 0.1, "square", 0.12, 0.6); },
+    bounce() { blip(70, 0.04, "sine", 0.05, 0.7); },
+    win() { [440, 554, 659, 880].forEach((f, i) => setTimeout(() => blip(f, 0.16, "triangle", 0.16, 1), i * 110)); },
+    toggle() {
+      muted = !muted;
+      localStorage.setItem("vsarena_muted", muted ? "1" : "0");
+      return muted;
+    },
+    get muted() { return muted; },
+  };
+})();
+document.addEventListener("pointerdown", () => SFX.unlock(), { once: true });
 
 /* ---------- Seeded RNG (mulberry32) — same seed, same battle ---------- */
 function mulberry32(seed) {
@@ -54,6 +100,7 @@ const state = {
   cfg: readConfig(),
   fighters: [],
   particles: [],
+  floats: [],
   shake: 0,
   running: false,
   over: false,
@@ -83,6 +130,10 @@ class Fighter {
     this.wLen = w.len;
     this.cooldown = 0;
     this.flash = 0;
+    // gimmick state
+    this.hitCount = 0;      // pickaxe: every 3rd hit crits
+    this.combo = 0;         // sword: stacks per landed hit, breaks when hit
+    this.stunTimer = 0;     // hammer victim: weapon frozen
   }
 
   tip() {
@@ -106,7 +157,11 @@ class Fighter {
     const k = 1 + (target / sp - 1) * Math.min(1, dt * 2);
     this.vx *= k; this.vy *= k;
 
-    this.wAngle += this.spin * this.spinDir * spd * dt;
+    if (this.stunTimer > 0) {
+      this.stunTimer = Math.max(0, this.stunTimer - dt);
+    } else {
+      this.wAngle += this.spin * this.spinDir * spd * dt;
+    }
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.flash = Math.max(0, this.flash - dt * 3);
   }
@@ -119,6 +174,7 @@ function startBattle(cfg) {
   state.fighters = [new Fighter(cfg.a, 0, cfg, rng), new Fighter(cfg.b, 1, cfg, rng)];
   state.rng = rng;
   state.particles = [];
+  state.floats = [];
   state.shake = 0;
   state.running = true;
   state.over = false;
@@ -161,6 +217,7 @@ function step(dt) {
     const v2n = f2.vx * nx + f2.vy * ny;
     f1.vx += (v2n - v1n) * nx; f1.vy += (v2n - v1n) * ny;
     f2.vx += (v1n - v2n) * nx; f2.vy += (v1n - v2n) * ny;
+    SFX.bounce();
   }
 
   // weapon hits
@@ -174,6 +231,8 @@ function step(dt) {
     pt.life -= dt;
   }
   state.particles = state.particles.filter((p) => p.life > 0);
+  for (const fl of state.floats) { fl.y -= 34 * dt; fl.life -= dt; }
+  state.floats = state.floats.filter((f) => f.life > 0);
   state.shake = Math.max(0, state.shake - dt * 30);
 
   if (!state.over) {
@@ -181,39 +240,96 @@ function step(dt) {
       state.over = true;
       state.winner = f1.hp <= 0 ? f2 : f1;
       state.running = false;
+      SFX.win();
       setTimeout(showWinner, 600);
     }
   }
 }
 
+function addFloat(x, y, text, color, big) {
+  state.floats.push({ x, y, text, color, life: big ? 1.1 : 0.8, big: !!big });
+}
+
 function tryHit(atk, def) {
-  if (atk.cooldown > 0) return;
+  if (atk.cooldown > 0 || atk.stunTimer > 0) return;
   const sx = atk.x + Math.cos(atk.wAngle) * atk.r;
   const sy = atk.y + Math.sin(atk.wAngle) * atk.r;
   const t = atk.tip();
-  if (segPointDist(sx, sy, t.x, t.y, def.x, def.y) < def.r) {
-    def.hp = Math.max(0, def.hp - atk.w.dmg);
-    def.flash = 1;
-    atk.cooldown = 0.35;
-    // knockback
-    const kx = def.x - t.x, ky = def.y - t.y;
-    const kd = Math.hypot(kx, ky) || 1;
-    def.vx += (kx / kd) * 320;
-    def.vy += (ky / kd) * 320;
-    // the meme mechanic: weapon grows on every hit
-    atk.wLen = Math.min(MAX_LEN, atk.wLen + atk.w.growth);
-    atk.spin = Math.min(atk.spin * 1.03, atk.w.spin * 1.8);
-    state.shake = 7;
-    for (let i = 0; i < 10; i++) {
-      const a = state.rng() * Math.PI * 2;
-      const sp2 = 60 + state.rng() * 160;
-      state.particles.push({
-        x: t.x, y: t.y,
-        vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2 - 60,
-        life: 0.4 + state.rng() * 0.3,
-        color: def.color,
-      });
+  if (segPointDist(sx, sy, t.x, t.y, def.x, def.y) >= def.r) return;
+
+  /* --- per-weapon gimmicks --- */
+  let dmg = atk.w.dmg;
+  let crit = false;
+  let knock = 320;   // push away from weapon tip
+  let pull = false;  // angler reverses knockback
+
+  switch (atk.key) {
+    case "pickaxe":
+      atk.hitCount++;
+      if (atk.hitCount % 3 === 0) {
+        dmg *= 2;
+        crit = true;
+        addFloat(def.x, def.y - def.r - 26, "CRIT!", "#ffcc33", true);
+      }
+      break;
+    case "sword":
+      // combo stacks with every landed hit; resets when the sword itself gets hit
+      dmg += atk.combo * 3;
+      if (atk.combo >= 1) addFloat(atk.x, atk.y - atk.r - 26, "COMBO ×" + (atk.combo + 1), "#f9c74f", atk.combo >= 3);
+      atk.combo = Math.min(atk.combo + 1, 4);
+      break;
+    case "axe": {
+      const rage = 1 + (1 - atk.hp / atk.maxHp) * 0.8;
+      dmg = Math.round(dmg * rage);
+      if (rage >= 1.4) addFloat(atk.x, atk.y - atk.r - 26, "RAGE!", "#f8961e", true);
+      break;
     }
+    case "hammer":
+      def.stunTimer = 0.9;
+      knock = 480;
+      addFloat(def.x, def.y - def.r - 26, "STUN!", "#ffffff", true);
+      break;
+    case "trident": {
+      const heal = Math.round(dmg * 0.35);
+      atk.hp = Math.min(atk.maxHp, atk.hp + heal);
+      addFloat(atk.x, atk.y - atk.r - 26, "+" + heal, "#7ae582", false);
+      break;
+    }
+    case "angler":
+      pull = true;
+      knock = 400;
+      addFloat(def.x, def.y - def.r - 26, "HOOKED!", "#90be6d", true);
+      break;
+  }
+
+  def.hp = Math.max(0, def.hp - dmg);
+  def.combo = 0; // taking a hit breaks the sword's combo
+  def.flash = 1;
+  atk.cooldown = 0.35;
+  addFloat(def.x + 18, def.y - 6, "-" + dmg, crit ? "#ffcc33" : "#ff8f8f", crit);
+
+  // knockback: away from weapon tip — or toward the attacker for angler's hook
+  const kx = pull ? atk.x - def.x : def.x - t.x;
+  const ky = pull ? atk.y - def.y : def.y - t.y;
+  const kd = Math.hypot(kx, ky) || 1;
+  def.vx += (kx / kd) * knock;
+  def.vy += (ky / kd) * knock;
+
+  // the meme mechanic: weapon grows on every hit
+  atk.wLen = Math.min(MAX_LEN, atk.wLen + atk.w.growth);
+  atk.spin = Math.min(atk.spin * 1.03, atk.w.spin * 1.8);
+  state.shake = crit ? 11 : 7;
+  if (crit) SFX.crit(atk.w); else SFX.hit(atk.w);
+  const burst = crit ? 18 : 10;
+  for (let i = 0; i < burst; i++) {
+    const a = state.rng() * Math.PI * 2;
+    const sp2 = 60 + state.rng() * 160;
+    state.particles.push({
+      x: t.x, y: t.y,
+      vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2 - 60,
+      life: 0.4 + state.rng() * 0.3,
+      color: def.color,
+    });
   }
 }
 
@@ -247,6 +363,19 @@ function draw() {
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // floating combat text
+  for (const fl of state.floats) {
+    ctx.globalAlpha = Math.min(1, fl.life * 2);
+    ctx.font = (fl.big ? "900 22px" : "700 15px") + " system-ui";
+    ctx.textAlign = "center";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(0,0,0,0.6)";
+    ctx.strokeText(fl.text, fl.x, fl.y);
+    ctx.fillStyle = fl.color;
+    ctx.fillText(fl.text, fl.x, fl.y);
   }
   ctx.globalAlpha = 1;
 
@@ -332,6 +461,11 @@ function drawFighter(f) {
     ctx.lineWidth = 4;
     ctx.stroke();
   }
+  if (f.stunTimer > 0) {
+    ctx.font = "20px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText("💫", f.x, f.y - f.r - 10);
+  }
 }
 
 /* ---------- Main loop (fixed timestep = deterministic) ---------- */
@@ -370,7 +504,10 @@ function buildPickers() {
       em.textContent = w.emoji;
       const nm = document.createElement("span");
       nm.textContent = w.name;
-      btn.append(em, nm);
+      const gm = document.createElement("span");
+      gm.className = "gimmick";
+      gm.textContent = w.gimmick;
+      btn.append(em, nm, gm);
       btn.addEventListener("click", () => {
         state.cfg[side] = key;
         refreshPickers();
@@ -438,7 +575,18 @@ function bindUI() {
   el("hp").addEventListener("input", () => (el("hpVal").textContent = el("hp").value));
   el("spd").addEventListener("input", () => (el("spdVal").textContent = parseFloat(el("spd").value).toFixed(1)));
   el("btnDice").addEventListener("click", () => (el("seed").value = (Math.random() * 4294967296) >>> 0));
-  el("btnFight").addEventListener("click", () => startBattle(currentConfig()));
+  el("btnFight").addEventListener("click", () => {
+    startBattle(currentConfig());
+    // analytics: count matchups as events (no-op if GoatCounter isn't loaded)
+    if (window.goatcounter && window.goatcounter.count) {
+      window.goatcounter.count({ path: "fight/" + state.cfg.a + "-vs-" + state.cfg.b, title: "FIGHT", event: true });
+    }
+  });
+  const muteBtn = el("btnMute");
+  muteBtn.textContent = SFX.muted ? "🔇" : "🔊";
+  muteBtn.addEventListener("click", () => {
+    muteBtn.textContent = SFX.toggle() ? "🔇" : "🔊";
+  });
   el("btnShare").addEventListener("click", copyLink);
   el("btnShareOverlay").addEventListener("click", copyLink);
   el("btnReplay").addEventListener("click", () => startBattle(state.cfg));
