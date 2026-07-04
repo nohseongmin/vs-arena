@@ -38,6 +38,8 @@ const FIGHTERS = {
 };
 const FIGHTER_KEYS = Object.keys(FIGHTERS);
 const MAX_LEN = 110;
+// distinct ring colors for battle royale (index 0/1 also used for 1v1 = red/blue)
+const SIDE_COLORS = ["#ff5d5d", "#5da9ff", "#ffd166", "#06d6a0", "#c77dff", "#fb8500"];
 
 /* ---------- Sound (procedural WebAudio, no assets) ---------- */
 const SFX = (() => {
@@ -73,6 +75,7 @@ const SFX = (() => {
     shoot(w) { blip(w.snd.freq, 0.06, w.snd.type, 0.1, 1.6); },
     block() { blip(900, 0.05, "square", 0.08, 0.8); },
     boom() { blip(50, 0.4, "sawtooth", 0.22, 0.4); blip(130, 0.2, "square", 0.14, 0.3); },
+    levelup() { [523, 659, 784].forEach((f, i) => setTimeout(() => blip(f, 0.12, "square", 0.13, 1.2), i * 60)); },
     win() { [440, 554, 659, 880].forEach((f, i) => setTimeout(() => blip(f, 0.16, "triangle", 0.16, 1), i * 110)); },
     toggle() {
       muted = !muted;
@@ -101,13 +104,19 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 function readConfig() {
   const p = new URLSearchParams(location.search);
   const pick = (v, fallback) => (FIGHTER_KEYS.includes(v) ? v : fallback);
+  const mode = p.get("mode") === "br" ? "br" : "duel";
+  let roster = (p.get("roster") || "").split(",").filter((k) => FIGHTER_KEYS.includes(k));
+  if (roster.length < 2) roster = ["pickaxe", "hammer", "ninja", "bomber"];
+  roster = roster.slice(0, 6);
   return {
+    mode,
     a: pick(p.get("a"), "pickaxe"),
     b: pick(p.get("b"), "angler"),
+    roster,
     hp: clamp(parseInt(p.get("hp"), 10) || 100, 50, 300),
     spd: clamp(parseFloat(p.get("spd")) || 1, 0.5, 3),
     seed: (parseInt(p.get("seed"), 10) >>> 0) || ((Math.random() * 4294967296) >>> 0),
-    auto: p.has("a") || p.has("b") || p.has("seed"),
+    auto: p.has("a") || p.has("b") || p.has("seed") || p.has("mode"),
   };
 }
 
@@ -136,20 +145,48 @@ const state = {
   time: 0,
 };
 
+/* helpers used everywhere once combat can have more than two bodies */
+function living() { return state.fighters.filter((f) => f.alive); }
+function nearestEnemy(f) {
+  let best = null, bd = Infinity;
+  for (const o of state.fighters) {
+    if (o === f || !o.alive) continue;
+    const d = Math.hypot(o.x - f.x, o.y - f.y);
+    if (d < bd) { bd = d; best = o; }
+  }
+  return best;
+}
+
 class Fighter {
-  constructor(key, side, cfg, rng) {
+  constructor(key, idx, cfg, rng, total) {
     const w = FIGHTERS[key];
     this.key = key;
     this.w = w;
-    this.side = side; // 0 = red (top), 1 = blue (bottom)
-    this.sideColor = side === 0 ? "#ff5d5d" : "#5da9ff";
+    this.idx = idx;
+    this.sideColor = SIDE_COLORS[idx % SIDE_COLORS.length];
+    this.alive = true;
+    this.baseR = w.r;
     this.r = w.r;
-    this.hp = cfg.hp;
-    this.maxHp = cfg.hp;
+    // ranged fighters are glass cannons: great in a 1v1 but get dogpiled in a
+    // royale. Give them a survivability cushion in royale only so they're viable.
+    const ranged = (w.attack || "orbit") !== "orbit";
+    const hpMul = cfg.mode === "br" && ranged ? 1.5 : 1;
+    this.hp = Math.round(cfg.hp * hpMul);
+    this.maxHp = this.hp;
     this.baseSpeed = 205 * cfg.spd * (w.speedMul || 1);
-    this.x = AR.l + this.r + rng() * (AR.r - AR.l - this.r * 2);
-    const third = (AR.b - AR.t) / 3;
-    this.y = side === 0 ? AR.t + this.r + rng() * third : AR.b - this.r - rng() * third;
+    if (total <= 2) {
+      // 1v1: top vs bottom, matches the original layout
+      this.x = AR.l + this.r + rng() * (AR.r - AR.l - this.r * 2);
+      const third = (AR.b - AR.t) / 3;
+      this.y = idx === 0 ? AR.t + this.r + rng() * third : AR.b - this.r - rng() * third;
+    } else {
+      // royale: spread around a ring so nobody starts on top of anyone
+      const cx = (AR.l + AR.r) / 2, cy = (AR.t + AR.b) / 2;
+      const rad = Math.min(AR.r - AR.l, AR.b - AR.t) * 0.34;
+      const ang = (idx / total) * Math.PI * 2 + rng() * 0.4;
+      this.x = cx + Math.cos(ang) * rad;
+      this.y = cy + Math.sin(ang) * rad;
+    }
     const ang = rng() * Math.PI * 2;
     this.vx = Math.cos(ang) * this.baseSpeed;
     this.vy = Math.sin(ang) * this.baseSpeed;
@@ -169,6 +206,11 @@ class Fighter {
     this.gravActive = 0;  // gravity: well remaining
     this.fireTimer = (w.rate || 1) * 0.6; // ranged: time to next throw
     this.power = 0;       // ranged: grows per landed projectile
+    // royale progression
+    this.kills = 0;
+    this.level = 1;
+    this.dmgMul = 1;
+    this.lastAttacker = null;
   }
 
   tip() {
@@ -181,9 +223,9 @@ class Fighter {
   update(dt, spd) {
     // movement personality
     let speedTarget = this.baseSpeed;
+    const foe = nearestEnemy(this);
     if ((this.w.attack || "orbit") === "orbit") {
-      // melee instinct: drift toward the enemy so kiters can't run forever
-      const foe = state.fighters.find((o) => o !== this);
+      // melee instinct: drift toward the nearest enemy so kiters can't run forever
       if (foe) {
         const dx = foe.x - this.x, dy = foe.y - this.y;
         const d = Math.hypot(dx, dy) || 1;
@@ -194,14 +236,16 @@ class Fighter {
     if (this.key === "axe") {
       speedTarget *= 1 + (1 - this.hp / this.maxHp) * 0.5; // rage: faster when hurt
     }
-    if (this.key === "archer") {
-      // kiting: back off when the enemy closes in
-      const foe = state.fighters.find((o) => o !== this);
-      if (foe) {
-        const dx = this.x - foe.x, dy = this.y - foe.y;
-        const d = Math.hypot(dx, dy) || 1;
-        if (d < 110) { this.vx += (dx / d) * 140 * dt; this.vy += (dy / d) * 140 * dt; }
-      }
+    // kiting: shooters back off when an enemy closes in. Archer always kites
+    // (its 1v1 identity); ninja only kites in a royale swarm so 1v1 is unchanged.
+    const br = state.cfg.mode === "br";
+    const kites = this.key === "archer" || (br && this.key === "ninja");
+    if (kites && foe) {
+      const range = br ? 150 : 110;
+      const push = br ? 260 : 140;
+      const dx = this.x - foe.x, dy = this.y - foe.y;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d < range) { this.vx += (dx / d) * push * dt; this.vy += (dy / d) * push * dt; }
     }
     if (this.key === "drunk") {
       this.jerkTimer -= dt;
@@ -242,8 +286,9 @@ class Fighter {
 function startBattle(cfg) {
   state.cfg = cfg;
   const rng = mulberry32(cfg.seed);
-  state.fighters = [new Fighter(cfg.a, 0, cfg, rng), new Fighter(cfg.b, 1, cfg, rng)];
   state.rng = rng;
+  const keys = cfg.mode === "br" ? cfg.roster : [cfg.a, cfg.b];
+  state.fighters = keys.map((key, i) => new Fighter(key, i, cfg, rng, keys.length));
   state.particles = [];
   state.projectiles = [];
   state.floats = [];
@@ -257,8 +302,10 @@ function startBattle(cfg) {
 }
 
 function syncUrl(cfg) {
-  const p = new URLSearchParams({ a: cfg.a, b: cfg.b, hp: cfg.hp, spd: cfg.spd, seed: cfg.seed });
-  history.replaceState(null, "", location.pathname + "?" + p.toString());
+  const params = cfg.mode === "br"
+    ? { mode: "br", roster: cfg.roster.join(","), hp: cfg.hp, spd: cfg.spd, seed: cfg.seed }
+    : { a: cfg.a, b: cfg.b, hp: cfg.hp, spd: cfg.spd, seed: cfg.seed };
+  history.replaceState(null, "", location.pathname + "?" + new URLSearchParams(params).toString());
 }
 
 /* ---------- Physics ---------- */
@@ -271,13 +318,12 @@ function segPointDist(ax, ay, bx, by, px, py) {
 
 function step(dt) {
   const spd = state.cfg.spd;
-  const [f1, f2] = state.fighters;
-  f1.update(dt, spd);
-  f2.update(dt, spd);
+  const fl = living();
+  for (const f of fl) f.update(dt, spd);
   state.time += dt;
 
-  // gravity guy: periodic well that drags the opponent in
-  for (const [me, foe] of [[f1, f2], [f2, f1]]) {
+  // gravity guy: periodic well that drags the nearest enemy in
+  for (const me of fl) {
     if (me.key !== "gravity") continue;
     me.gravCycle += dt;
     if (me.gravCycle >= 3.2) {
@@ -288,24 +334,31 @@ function step(dt) {
     }
     if (me.gravActive > 0) {
       me.gravActive = Math.max(0, me.gravActive - dt);
-      const dx = me.x - foe.x, dy = me.y - foe.y;
-      const d = Math.hypot(dx, dy) || 1;
-      foe.vx += (dx / d) * 520 * dt;
-      foe.vy += (dy / d) * 520 * dt;
+      const foe = nearestEnemy(me);
+      if (foe) {
+        const dx = me.x - foe.x, dy = me.y - foe.y;
+        const d = Math.hypot(dx, dy) || 1;
+        foe.vx += (dx / d) * 520 * dt;
+        foe.vy += (dy / d) * 520 * dt;
+      }
     }
   }
 
-  // ranged fighters: throw projectiles at the enemy (with target leading)
-  for (const [me, foe] of [[f1, f2], [f2, f1]]) {
+  // ranged fighters: throw projectiles at the nearest enemy (with target leading)
+  for (const me of fl) {
     const mode = me.w.attack || "orbit";
     if (mode === "orbit") continue;
     me.fireTimer -= dt;
     if (me.fireTimer > 0 || me.stunTimer > 0) continue;
+    const foe = nearestEnemy(me);
+    if (!foe) continue;
     const scale = 1 + me.power * 0.06;
     const dx = foe.x - me.x, dy = foe.y - me.y;
     const d = Math.hypot(dx, dy) || 1;
-    // archers and ninjas can't shoot point-blank — they have to escape first
-    if (mode !== "bomb" && d < 130) {
+    // archers and ninjas can't shoot at melee range — but in a royale swarm the
+    // lockout is looser so they can still contribute instead of just dying
+    const blockRange = state.cfg.mode === "br" ? 60 : 130;
+    if (mode !== "bomb" && d < blockRange) {
       me.fireTimer = 0.4;
       continue;
     }
@@ -334,25 +387,34 @@ function step(dt) {
   }
   updateProjectiles(dt);
 
-  // body-body elastic bounce
-  const dx = f2.x - f1.x, dy = f2.y - f1.y;
-  const dist = Math.hypot(dx, dy) || 1;
-  const minDist = f1.r + f2.r;
-  if (dist < minDist) {
-    const nx = dx / dist, ny = dy / dist;
-    const push = (minDist - dist) / 2;
-    f1.x -= nx * push; f1.y -= ny * push;
-    f2.x += nx * push; f2.y += ny * push;
-    const v1n = f1.vx * nx + f1.vy * ny;
-    const v2n = f2.vx * nx + f2.vy * ny;
-    f1.vx += (v2n - v1n) * nx; f1.vy += (v2n - v1n) * ny;
-    f2.vx += (v1n - v2n) * nx; f2.vy += (v1n - v2n) * ny;
-    SFX.bounce();
+  // body-body elastic bounce for every living pair
+  for (let i = 0; i < fl.length; i++) {
+    for (let j = i + 1; j < fl.length; j++) {
+      const a = fl[i], b = fl[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const minDist = a.r + b.r;
+      if (dist >= minDist) continue;
+      const nx = dx / dist, ny = dy / dist;
+      const push = (minDist - dist) / 2;
+      a.x -= nx * push; a.y -= ny * push;
+      b.x += nx * push; b.y += ny * push;
+      const van = a.vx * nx + a.vy * ny;
+      const vbn = b.vx * nx + b.vy * ny;
+      a.vx += (vbn - van) * nx; a.vy += (vbn - van) * ny;
+      b.vx += (van - vbn) * nx; b.vy += (van - vbn) * ny;
+      SFX.bounce();
+    }
   }
 
-  // weapon hits
-  tryHit(f1, f2);
-  tryHit(f2, f1);
+  // weapon hits: every living fighter can strike every other
+  for (const atk of fl) {
+    if ((atk.w.attack || "orbit") !== "orbit") continue;
+    for (const def of fl) {
+      if (def === atk) continue;
+      tryHit(atk, def);
+    }
+  }
 
   // particles & floating text
   for (const pt of state.particles) {
@@ -361,19 +423,49 @@ function step(dt) {
     pt.life -= dt;
   }
   state.particles = state.particles.filter((p) => p.life > 0);
-  for (const fl of state.floats) { fl.y -= 34 * dt; fl.life -= dt; }
+  for (const fx of state.floats) { fx.y -= 34 * dt; fx.life -= dt; }
   state.floats = state.floats.filter((f) => f.life > 0);
   state.shake = Math.max(0, state.shake - dt * 30);
 
-  if (!state.over) {
-    if (f1.hp <= 0 || f2.hp <= 0) {
-      state.over = true;
-      state.winner = f1.hp <= 0 ? f2 : f1;
-      state.running = false;
-      SFX.win();
-      setTimeout(showWinner, 600);
+  reap();
+}
+
+// mark the newly-dead, credit the killer, and end the match when one remains
+function reap() {
+  if (state.over) return;
+  for (const f of state.fighters) {
+    if (!f.alive || f.hp > 0) continue;
+    f.alive = false;
+    addFloat(f.x, f.y - f.r - 20, "OUT!", "#ff5d5d", true);
+    for (let i = 0; i < 22; i++) {
+      const a = state.rng() * Math.PI * 2;
+      const sp = 80 + state.rng() * 200;
+      state.particles.push({ x: f.x, y: f.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60,
+        life: 0.4 + state.rng() * 0.3, color: f.w.color });
     }
+    const killer = f.lastAttacker;
+    if (killer && killer.alive && killer !== f) levelUp(killer);
   }
+  const alive = living();
+  if (alive.length <= 1) {
+    state.over = true;
+    state.running = false;
+    state.winner = alive[0] || state.winner || state.fighters[state.fighters.length - 1];
+    SFX.win();
+    setTimeout(showWinner, 600);
+  }
+}
+
+// killing an enemy in royale makes the victor grow — the snowball that makes it fun
+function levelUp(k) {
+  k.kills++;
+  k.level++;
+  k.dmgMul *= 1.15;
+  k.maxHp += 25;
+  k.hp = Math.min(k.maxHp, k.hp + 40);
+  k.r = Math.min(k.baseR + 15, k.r + 3);
+  addFloat(k.x, k.y - k.r - 30, "LEVEL UP!", "#ffcc33", true);
+  SFX.levelup();
 }
 
 function addFloat(x, y, text, color, big) {
@@ -381,6 +473,17 @@ function addFloat(x, y, text, color, big) {
 }
 
 /* ---------- Projectiles ---------- */
+// find the closest living fighter (other than the owner) a projectile is touching
+function projectileTarget(p) {
+  let best = null, bd = Infinity;
+  for (const f of state.fighters) {
+    if (f === p.owner || !f.alive) continue;
+    const d = Math.hypot(f.x - p.x, f.y - p.y);
+    if (d < bd) { bd = d; best = f; }
+  }
+  return best;
+}
+
 function updateProjectiles(dt) {
   const alive = [];
   for (const p of state.projectiles) {
@@ -389,9 +492,9 @@ function updateProjectiles(dt) {
     p.y += p.vy * dt;
     p.life -= dt;
     if (p.kind === "shuriken") p.spin += dt * 16;
-    const foe = state.fighters.find((f) => f !== p.owner);
+    const foe = projectileTarget(p);
     let dead = false;
-    // spinning weapons act as shields: deflect shots, bat bombs back
+    // a nearby spinning weapon acts as a shield: deflect shots, bat bombs back
     if (foe && (foe.w.attack || "orbit") === "orbit" && foe.stunTimer <= 0) {
       const bx = foe.x + Math.cos(foe.wAngle) * foe.r;
       const by = foe.y + Math.sin(foe.wAngle) * foe.r;
@@ -415,13 +518,13 @@ function updateProjectiles(dt) {
     }
     if (dead) continue;
     if (p.kind === "bomb") {
-      // bombs bounce around until the fuse runs out (or they touch the enemy)
+      // bombs bounce around until the fuse runs out (or they touch an enemy)
       if (p.x < AR.l + p.r) { p.x = AR.l + p.r; p.vx = Math.abs(p.vx) * 0.55; }
       if (p.x > AR.r - p.r) { p.x = AR.r - p.r; p.vx = -Math.abs(p.vx) * 0.55; }
       if (p.y > AR.b - p.r) { p.y = AR.b - p.r; p.vy = -Math.abs(p.vy) * 0.5; p.vx *= 0.8; }
       if (p.y < AR.t + p.r) { p.y = AR.t + p.r; p.vy = Math.abs(p.vy); }
       if (p.fuse <= 0 || (foe && Math.hypot(foe.x - p.x, foe.y - p.y) < foe.r + p.r)) {
-        explode(p, foe);
+        explode(p);
         dead = true;
       }
     } else {
@@ -445,11 +548,12 @@ function projectileHit(p, foe) {
     return;
   }
   const o = p.owner;
-  const dmg = o.w.dmg + Math.min(4, Math.floor(o.power / 2));
+  const dmg = Math.round((o.w.dmg + Math.min(4, Math.floor(o.power / 2))) * o.dmgMul);
   foe.hp = Math.max(0, foe.hp - dmg);
   foe.combo = 0;
   foe.iframes = p.kind === "shuriken" ? 0.4 : 0.8;
   foe.flash = 1;
+  foe.lastAttacker = o;
   addFloat(foe.x + 18, foe.y - 6, "-" + dmg, "#ff8f8f", false);
   const kn = (p.kind === "shuriken" ? 70 : 90) * (foe.w.knockMul || 1);
   const kd = Math.hypot(p.vx, p.vy) || 1;
@@ -466,7 +570,7 @@ function projectileHit(p, foe) {
   }
 }
 
-function explode(p, foe) {
+function explode(p) {
   state.shake = 13;
   SFX.boom();
   addFloat(p.x, p.y - 12, "BOOM!", "#ef476f", true);
@@ -476,12 +580,11 @@ function explode(p, foe) {
     state.particles.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2 - 60,
       life: 0.45 + state.rng() * 0.35, color: i % 3 ? "#f8961e" : "#ffcc33" });
   }
-  // the blast doesn't care whose bomb it was — the owner just takes it lighter
+  // the blast catches everyone in range — the owner just takes it lighter
   const o = p.owner;
   const R = 85;
-  let landed = false;
   for (const f of state.fighters) {
-    if (f.iframes > 0) continue;
+    if (!f.alive || f.iframes > 0) continue;
     const d = Math.hypot(f.x - p.x, f.y - p.y);
     if (d > R + f.r) continue;
     if (f.key === "drunk" && state.rng() < 0.22) {
@@ -490,24 +593,22 @@ function explode(p, foe) {
       continue;
     }
     const fall = 1 - (Math.max(0, d - f.r) / R) * 0.5; // full damage center, half at edge
-    let dmg = Math.round((o.w.dmg + Math.min(4, Math.floor(o.power / 2))) * fall);
+    let dmg = Math.round((o.w.dmg + Math.min(4, Math.floor(o.power / 2))) * o.dmgMul * fall);
     if (f === o) dmg = Math.round(dmg * 0.6);
     f.hp = Math.max(0, f.hp - dmg);
     f.combo = 0;
     f.iframes = 0.8;
     f.flash = 1;
+    if (f !== o) { f.lastAttacker = o; o.power = Math.min(o.power + 1, 8); }
     addFloat(f.x + 18, f.y - 6, "-" + dmg, "#ffcc33", true);
     const kd = d || 1;
     const km = f.w.knockMul || 1;
     f.vx += ((f.x - p.x) / kd) * 520 * km;
     f.vy += ((f.y - p.y) / kd) * 520 * km;
-    if (f !== o) landed = true;
   }
-  if (landed) o.power = Math.min(o.power + 1, 8);
 }
 
 function tryHit(atk, def) {
-  if ((atk.w.attack || "orbit") !== "orbit") return; // ranged fighters throw instead
   if (atk.cooldown > 0 || atk.stunTimer > 0) return;
   const sx = atk.x + Math.cos(atk.wAngle) * atk.r;
   const sy = atk.y + Math.sin(atk.wAngle) * atk.r;
@@ -515,7 +616,7 @@ function tryHit(atk, def) {
   if (segPointDist(sx, sy, t.x, t.y, def.x, def.y) >= def.r) return;
   if (def.iframes > 0) return; // recently hit — untouchable until recovered
 
-  // drunk guy staggers out of the way 25% of the time
+  // drunk guy staggers out of the way
   if (def.key === "drunk" && state.rng() < 0.22) {
     addFloat(def.x, def.y - def.r - 26, "MISS!", "#ffd166", true);
     atk.cooldown = 0.45;
@@ -568,10 +669,12 @@ function tryHit(atk, def) {
       break;
   }
 
+  dmg = Math.round(dmg * atk.dmgMul); // royale level-up multiplier
   def.hp = Math.max(0, def.hp - dmg);
   def.combo = 0; // taking a hit breaks the sword's combo
   def.iframes = 0.85;
   def.flash = 1;
+  def.lastAttacker = atk;
   addFloat(def.x + 18, def.y - 6, "-" + dmg, crit ? "#ffcc33" : "#ff8f8f", crit);
 
   // knockback: away from weapon tip — or toward the attacker for angler's hook.
@@ -630,9 +733,9 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(AR.l, y); ctx.lineTo(AR.r, y); ctx.stroke();
   }
 
-  drawHpBars();
+  drawHud();
 
-  for (const f of state.fighters) drawFighter(f);
+  for (const f of state.fighters) if (f.alive) drawFighter(f);
   drawProjectiles();
 
   for (const pt of state.particles) {
@@ -665,17 +768,13 @@ function draw() {
   ctx.restore();
 }
 
-function drawHpBars() {
+function drawHud() {
+  if (state.cfg.mode === "br") { drawRoyaleHud(); return; }
   const [f1, f2] = state.fighters;
   const pad = 12, barH = 16, half = (W - pad * 3) / 2;
   ctx.textAlign = "left";
   ctx.font = "700 13px system-ui";
-
-  const bars = [
-    { f: f1, x: pad },
-    { f: f2, x: pad * 2 + half },
-  ];
-  for (const { f, x } of bars) {
+  for (const { f, x } of [{ f: f1, x: pad }, { f: f2, x: pad * 2 + half }]) {
     ctx.fillStyle = "rgba(255,255,255,0.08)";
     roundRectPath(x, 46, half, barH, 8);
     ctx.fill();
@@ -686,13 +785,44 @@ function drawHpBars() {
     ctx.fillText(f.w.face + " " + f.w.name, x, 38);
     ctx.fillStyle = "rgba(255,255,255,0.7)";
     ctx.font = "600 11px system-ui";
-    ctx.fillText(Math.ceil(f.hp) + " HP", x, 76);
+    ctx.fillText(Math.ceil(Math.max(0, f.hp)) + " HP", x, 76);
     ctx.font = "700 13px system-ui";
   }
   ctx.fillStyle = "#ffcc33";
   ctx.font = "900 15px system-ui";
   ctx.textAlign = "center";
   ctx.fillText("VS", W / 2, 60);
+}
+
+function drawRoyaleHud() {
+  const n = living().length;
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffcc33";
+  ctx.font = "900 26px system-ui";
+  ctx.fillText(state.over ? "WINNER!" : n + " LEFT", W / 2, 44);
+  // compact standings: emoji + hp pip per fighter, sorted by current hp
+  const order = [...state.fighters].sort((a, b) => (b.alive - a.alive) || (b.hp - a.hp));
+  const cols = order.length, cellW = Math.min(70, (W - 20) / cols), startX = (W - cellW * cols) / 2 + cellW / 2;
+  ctx.font = "20px system-ui";
+  for (let i = 0; i < order.length; i++) {
+    const f = order[i], cx = startX + i * cellW;
+    ctx.globalAlpha = f.alive ? 1 : 0.3;
+    ctx.fillText(f.w.face + f.w.emoji, cx, 74);
+    // hp pip
+    const bw = cellW - 16;
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    roundRectPath(cx - bw / 2, 82, bw, 6, 3); ctx.fill();
+    ctx.fillStyle = f.alive ? f.sideColor : "#555";
+    const r = Math.max(0, f.hp / f.maxHp);
+    if (r > 0) { roundRectPath(cx - bw / 2, 82, bw * r, 6, 3); ctx.fill(); }
+    if (f.kills > 0) {
+      ctx.fillStyle = "#ffcc33";
+      ctx.font = "700 10px system-ui";
+      ctx.fillText("💀" + f.kills, cx, 102);
+      ctx.font = "20px system-ui";
+    }
+    ctx.globalAlpha = 1;
+  }
 }
 
 function roundRectPath(x, y, w, h, r) {
@@ -765,8 +895,8 @@ function drawFighter(f) {
     ctx.fillText(f.w.emoji, 0, 0);
     ctx.restore();
   } else {
-    // ranged: hold the weapon aimed at the enemy
-    const foe = state.fighters.find((o) => o !== f);
+    // ranged: hold the weapon aimed at the nearest enemy
+    const foe = nearestEnemy(f);
     const a = foe ? Math.atan2(foe.y - f.y, foe.x - f.x) : 0;
     ctx.save();
     ctx.translate(f.x + Math.cos(a) * (f.r + 14), f.y + Math.sin(a) * (f.r + 14));
@@ -805,8 +935,25 @@ function drawFighter(f) {
   ctx.fillText(f.w.face, f.x + wob, f.y + (f.w.body === "tri" ? 8 : 1));
   ctx.textBaseline = "alphabetic";
 
+  // royale: floating HP bar + level crown above each head
+  if (state.cfg.mode === "br") {
+    const bw = f.r * 1.8, bx = f.x - bw / 2, by = f.y - f.r - 14;
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    roundRectPath(bx, by, bw, 5, 2.5); ctx.fill();
+    ctx.fillStyle = f.sideColor;
+    const r = Math.max(0, f.hp / f.maxHp);
+    if (r > 0) { roundRectPath(bx, by, bw * r, 5, 2.5); ctx.fill(); }
+    if (f.level > 1) {
+      ctx.font = "700 11px system-ui";
+      ctx.fillStyle = "#ffcc33";
+      ctx.textAlign = "center";
+      ctx.fillText("Lv" + f.level, f.x, by - 4);
+    }
+  }
+
   if (f.stunTimer > 0) {
     ctx.font = "20px system-ui";
+    ctx.textAlign = "center";
     ctx.fillText("💫", f.x, f.y - f.r - 12);
   }
 }
@@ -880,29 +1027,50 @@ setInterval(() => {
 
 /* ---------- UI ---------- */
 function buildPickers() {
+  // 1v1 pickers
   for (const [gridId, side] of [["gridA", "a"], ["gridB", "b"]]) {
     const grid = el(gridId);
     for (const key of FIGHTER_KEYS) {
-      const w = FIGHTERS[key];
-      const btn = document.createElement("button");
-      btn.className = "weapon-btn";
-      btn.dataset.key = key;
-      const em = document.createElement("span");
-      em.className = "emoji";
-      em.textContent = w.face + w.emoji;
-      const nm = document.createElement("span");
-      nm.textContent = w.name;
-      const gm = document.createElement("span");
-      gm.className = "gimmick";
-      gm.textContent = w.gimmick;
-      btn.append(em, nm, gm);
-      btn.addEventListener("click", () => {
-        state.cfg[side] = key;
-        refreshPickers();
-      });
-      grid.appendChild(btn);
+      grid.appendChild(makeChip(key, () => { state.cfg[side] = key; refreshPickers(); }));
     }
   }
+  // royale roster multi-select
+  const rg = el("gridRoyale");
+  for (const key of FIGHTER_KEYS) {
+    rg.appendChild(makeChip(key, () => toggleRoster(key)));
+  }
+}
+
+function makeChip(key, onClick) {
+  const w = FIGHTERS[key];
+  const btn = document.createElement("button");
+  btn.className = "weapon-btn";
+  btn.dataset.key = key;
+  const em = document.createElement("span");
+  em.className = "emoji";
+  em.textContent = w.face + w.emoji;
+  const nm = document.createElement("span");
+  nm.textContent = w.name;
+  const gm = document.createElement("span");
+  gm.className = "gimmick";
+  gm.textContent = w.gimmick;
+  btn.append(em, nm, gm);
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
+function toggleRoster(key) {
+  const r = state.cfg.roster;
+  const i = r.indexOf(key);
+  if (i >= 0) {
+    if (r.length > 2) r.splice(i, 1); // keep at least 2
+  } else if (r.length < 6) {
+    r.push(key);
+  } else {
+    showToast("Royale holds 6 fighters max");
+    return;
+  }
+  refreshPickers();
 }
 
 function refreshPickers() {
@@ -911,17 +1079,32 @@ function refreshPickers() {
       btn.classList.toggle("selected", btn.dataset.key === state.cfg[side]);
     }
   }
+  for (const btn of el("gridRoyale").children) {
+    const on = state.cfg.roster.includes(btn.dataset.key);
+    btn.classList.toggle("selected", on);
+    const order = state.cfg.roster.indexOf(btn.dataset.key);
+    btn.style.setProperty("--pick-ring", on ? SIDE_COLORS[order % SIDE_COLORS.length] : "transparent");
+  }
+  el("royaleCount").textContent = state.cfg.roster.length + " fighters";
   el("hp").value = state.cfg.hp;
   el("hpVal").textContent = state.cfg.hp;
   el("spd").value = state.cfg.spd;
   el("spdVal").textContent = state.cfg.spd.toFixed(1);
   el("seed").value = state.cfg.seed;
+  // mode visibility
+  const br = state.cfg.mode === "br";
+  el("duelPickers").classList.toggle("hidden", br);
+  el("royalePickers").classList.toggle("hidden", !br);
+  el("tabDuel").classList.toggle("active", !br);
+  el("tabRoyale").classList.toggle("active", br);
 }
 
 function currentConfig() {
   return {
+    mode: state.cfg.mode,
     a: state.cfg.a,
     b: state.cfg.b,
+    roster: [...state.cfg.roster],
     hp: clamp(parseInt(el("hp").value, 10) || 100, 50, 300),
     spd: clamp(parseFloat(el("spd").value) || 1, 0.5, 3),
     seed: (parseInt(el("seed").value, 10) >>> 0) || 1,
@@ -931,7 +1114,8 @@ function currentConfig() {
 function showWinner() {
   const w = state.winner;
   el("winnerEmoji").textContent = w.w.face + w.w.emoji;
-  el("winnerText").textContent = w.w.name + " WINS!";
+  const suffix = state.cfg.mode === "br" && w.kills > 0 ? ` · ${w.kills} 💀` : "";
+  el("winnerText").textContent = w.w.name + " WINS!" + suffix;
   overlay.classList.remove("hidden");
 }
 
@@ -959,17 +1143,36 @@ async function copyLink() {
   }
 }
 
+function fight() {
+  startBattle(currentConfig());
+  if (window.goatcounter && window.goatcounter.count) {
+    const label = state.cfg.mode === "br" ? "royale/" + state.cfg.roster.join("-") : "fight/" + state.cfg.a + "-vs-" + state.cfg.b;
+    window.goatcounter.count({ path: label, title: "FIGHT", event: true });
+  }
+}
+
+function setMode(mode) {
+  state.cfg.mode = mode;
+  refreshPickers();
+}
+
 function bindUI() {
   el("hp").addEventListener("input", () => (el("hpVal").textContent = el("hp").value));
   el("spd").addEventListener("input", () => (el("spdVal").textContent = parseFloat(el("spd").value).toFixed(1)));
   el("btnDice").addEventListener("click", () => (el("seed").value = (Math.random() * 4294967296) >>> 0));
-  el("btnFight").addEventListener("click", () => {
-    startBattle(currentConfig());
-    // analytics: count matchups as events (no-op if GoatCounter isn't loaded)
-    if (window.goatcounter && window.goatcounter.count) {
-      window.goatcounter.count({ path: "fight/" + state.cfg.a + "-vs-" + state.cfg.b, title: "FIGHT", event: true });
+  el("tabDuel").addEventListener("click", () => setMode("duel"));
+  el("tabRoyale").addEventListener("click", () => setMode("br"));
+  el("btnRandomRoster").addEventListener("click", () => {
+    const n = 3 + Math.floor(Math.random() * 4); // 3..6
+    const pool = [...FIGHTER_KEYS];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
     }
+    state.cfg.roster = pool.slice(0, n);
+    refreshPickers();
   });
+  el("btnFight").addEventListener("click", fight);
   const muteBtn = el("btnMute");
   muteBtn.textContent = SFX.muted ? "🔇" : "🔊";
   muteBtn.addEventListener("click", () => {
@@ -979,22 +1182,18 @@ function bindUI() {
   el("btnShareOverlay").addEventListener("click", copyLink);
   el("btnReplay").addEventListener("click", () => startBattle(state.cfg));
   el("btnRematch").addEventListener("click", () => {
-    const cfg = { ...state.cfg, seed: (Math.random() * 4294967296) >>> 0 };
-    refreshPickersAfter(cfg);
+    const cfg = { ...state.cfg, roster: [...state.cfg.roster], seed: (Math.random() * 4294967296) >>> 0 };
+    state.cfg = cfg;
+    refreshPickers();
     startBattle(cfg);
   });
-}
-
-function refreshPickersAfter(cfg) {
-  state.cfg = cfg;
-  refreshPickers();
 }
 
 /* ---------- Boot ---------- */
 buildPickers();
 refreshPickers();
 bindUI();
-startBattle({ ...state.cfg });
+startBattle({ ...state.cfg, roster: [...state.cfg.roster] });
 if (!state.cfg.auto) {
   // fresh visit: show the arena idle with fighters placed, don't auto-run
   state.running = false;

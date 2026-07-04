@@ -25,7 +25,7 @@
 <body>
   <header>
     <h1>⚔️ VS ARENA</h1>
-    <p class="tagline">Build a matchup. Run the sim. Share the battle.</p>
+    <p class="tagline">1v1 or 6-way royale. Run the sim. Share the battle.</p>
   </header>
 
   <main>
@@ -43,16 +43,31 @@
     </div>
 
     <section id="controls">
-      <div class="picker-row">
-        <div class="picker" id="pickerA">
-          <div class="picker-label side-a">FIGHTER 1</div>
-          <div class="weapon-grid" id="gridA"></div>
+      <div class="mode-tabs">
+        <button id="tabDuel" class="mode-tab active">⚔️ 1V1 DUEL</button>
+        <button id="tabRoyale" class="mode-tab">👑 BATTLE ROYALE</button>
+      </div>
+
+      <div id="duelPickers">
+        <div class="picker-row">
+          <div class="picker" id="pickerA">
+            <div class="picker-label side-a">FIGHTER 1</div>
+            <div class="weapon-grid" id="gridA"></div>
+          </div>
+          <div class="vs-label">VS</div>
+          <div class="picker" id="pickerB">
+            <div class="picker-label side-b">FIGHTER 2</div>
+            <div class="weapon-grid" id="gridB"></div>
+          </div>
         </div>
-        <div class="vs-label">VS</div>
-        <div class="picker" id="pickerB">
-          <div class="picker-label side-b">FIGHTER 2</div>
-          <div class="weapon-grid" id="gridB"></div>
+      </div>
+
+      <div id="royalePickers" class="hidden">
+        <div class="royale-head">
+          <span class="picker-label">TAP TO ADD (2–6) · <span id="royaleCount">4 fighters</span></span>
+          <button id="btnRandomRoster" class="btn tiny">🎲 Random</button>
         </div>
+        <div class="weapon-grid roster-grid" id="gridRoyale"></div>
       </div>
 
       <div class="sliders">
@@ -85,7 +100,7 @@
   </footer>
 
   <div id="toast" class="hidden"></div>
-  <script src="game.js?v=6"></script>
+  <script src="game.js?v=11"></script>
   <!-- GoatCounter analytics (privacy-friendly, no cookies) -->
   <script data-goatcounter="https://nohseongmin.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
