@@ -35,6 +35,16 @@ const FIGHTERS = {
   bomber:  { emoji: "💣", face: "😈", name: "BOMBER", color: "#ef476f", body: "square", r: 34,
              attack: "bomb", dmg: 11, rate: 2.6,
              gimmick: "lobbed bombs go BOOM", snd: { freq: 110, type: "sine" } },
+  // --- new mechanical archetypes (beyond melee/ranged) ---
+  spiker:  { emoji: "🦔", face: "😡", name: "SPIKER", color: "#e07a5f", body: "circle", r: 34,
+             attack: "spike", contact: 4, spikeGrow: 1.0, prickCd: 0.72,
+             gimmick: "body spikes; rams & pricks", snd: { freq: 180, type: "sawtooth" } },
+  charger: { emoji: "🔋", face: "😑", name: "CHARGER", color: "#3a86ff", body: "square", r: 34,
+             dmg: 6, spin: 2.2, len: 50, growth: 5, charge: true,
+             gimmick: "charges up while untouched", snd: { freq: 300, type: "square" } },
+  knight:  { emoji: "🛡️", face: "😤", name: "KNIGHT", color: "#8d99ae", body: "circle", r: 34,
+             dmg: 11, spin: 2.6, len: 48, growth: 6, reflect: true, knockMul: 0.6,
+             gimmick: "reflects shots at sender", snd: { freq: 250, type: "triangle" } },
 };
 const FIGHTER_KEYS = Object.keys(FIGHTERS);
 const MAX_LEN = 110;
@@ -147,6 +157,10 @@ const state = {
 
 /* helpers used everywhere once combat can have more than two bodies */
 function living() { return state.fighters.filter((f) => f.alive); }
+// "melee-like" = fights in close quarters (swings a weapon or rams with spikes),
+// as opposed to the ranged shooters. Drives targeting/movement instincts.
+function isMelee(f) { const a = f.w.attack || "orbit"; return a === "orbit" || a === "spike"; }
+function isRanged(f) { const a = f.w.attack || "orbit"; return a === "arrow" || a === "shuriken" || a === "bomb"; }
 function nearestEnemy(f) {
   let best = null, bd = Infinity;
   for (const o of state.fighters) {
@@ -169,7 +183,7 @@ class Fighter {
     this.r = w.r;
     // ranged fighters are glass cannons: great in a 1v1 but get dogpiled in a
     // royale. Give them a survivability cushion in royale only so they're viable.
-    const ranged = (w.attack || "orbit") !== "orbit";
+    const ranged = isRanged(this);
     const hpMul = cfg.mode === "br" && ranged ? 1.5 : 1;
     this.hp = Math.round(cfg.hp * hpMul);
     this.maxHp = this.hp;
@@ -206,6 +220,9 @@ class Fighter {
     this.gravActive = 0;  // gravity: well remaining
     this.fireTimer = (w.rate || 1) * 0.6; // ranged: time to next throw
     this.power = 0;       // ranged: grows per landed projectile
+    this.charge = 0;      // charger: builds while untouched, resets when hit
+    this.spikes = 0;      // spiker: contact damage grows per prick
+    this.reflectFlash = 0; // knight: glow after a reflect
     // royale progression
     this.kills = 0;
     this.level = 1;
@@ -224,14 +241,18 @@ class Fighter {
     // movement personality
     let speedTarget = this.baseSpeed;
     const foe = nearestEnemy(this);
-    if ((this.w.attack || "orbit") === "orbit") {
-      // melee instinct: drift toward the nearest enemy so kiters can't run forever
-      if (foe) {
-        const dx = foe.x - this.x, dy = foe.y - this.y;
-        const d = Math.hypot(dx, dy) || 1;
-        this.vx += (dx / d) * 150 * dt;
-        this.vy += (dy / d) * 150 * dt;
-      }
+    if (isMelee(this) && foe) {
+      // melee instinct: drift toward the nearest enemy so kiters can't run forever.
+      // the spiker is a rammer, so it charges in harder.
+      const drift = this.key === "spiker" ? 210 : 150;
+      const dx = foe.x - this.x, dy = foe.y - this.y;
+      const d = Math.hypot(dx, dy) || 1;
+      this.vx += (dx / d) * drift * dt;
+      this.vy += (dy / d) * drift * dt;
+    }
+    if (this.w.charge) {
+      // charger powers up while it isn't taking hits (reset happens on damage)
+      this.charge = Math.min(1, this.charge + dt * 0.28);
     }
     if (this.key === "axe") {
       speedTarget *= 1 + (1 - this.hp / this.maxHp) * 0.5; // rage: faster when hurt
@@ -279,6 +300,7 @@ class Fighter {
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.iframes = Math.max(0, this.iframes - dt);
     this.flash = Math.max(0, this.flash - dt * 3);
+    this.reflectFlash = Math.max(0, this.reflectFlash - dt * 2);
   }
 }
 
@@ -404,6 +426,9 @@ function step(dt) {
       a.vx += (vbn - van) * nx; a.vy += (vbn - van) * ny;
       b.vx += (van - vbn) * nx; b.vy += (van - vbn) * ny;
       SFX.bounce();
+      // spiker arms its own body: bumping into it pricks the other fighter
+      if (a.w.attack === "spike") contactHit(a, b);
+      if (b.w.attack === "spike") contactHit(b, a);
     }
   }
 
@@ -472,6 +497,42 @@ function addFloat(x, y, text, color, big) {
   state.floats.push({ x, y, text, color, life: big ? 1.1 : 0.8, big: !!big });
 }
 
+// any hit that lands resets a charger's build-up
+function breakCharge(f) { if (f.w.charge) f.charge = 0; }
+
+// spiker deals contact damage on body collision; its spikes grow per prick.
+// a prick cooldown keeps it from shredding through constant collisions.
+function contactHit(spk, v) {
+  if (spk.cooldown > 0 || v.iframes > 0) return;
+  spk.cooldown = spk.w.prickCd;
+  if (v.key === "drunk" && state.rng() < 0.22) {
+    addFloat(v.x, v.y - v.r - 26, "MISS!", "#ffd166", true);
+    SFX.miss();
+    return;
+  }
+  const dmg = Math.round((spk.w.contact + spk.spikes) * spk.dmgMul);
+  v.hp = Math.max(0, v.hp - dmg);
+  v.combo = 0;
+  v.iframes = 0.85;
+  v.flash = 1;
+  v.lastAttacker = spk;
+  breakCharge(v);
+  addFloat(v.x + 18, v.y - 6, "-" + dmg, "#ff8f8f", false);
+  const km = v.w.knockMul || 1;
+  const dx = v.x - spk.x, dy = v.y - spk.y, kd = Math.hypot(dx, dy) || 1;
+  v.vx += (dx / kd) * 300 * km;
+  v.vy += (dy / kd) * 300 * km;
+  spk.spikes = Math.min(6, spk.spikes + spk.w.spikeGrow); // spikes grow with use
+  state.shake = 7;
+  SFX.hit(spk.w);
+  for (let i = 0; i < 8; i++) {
+    const a = state.rng() * Math.PI * 2;
+    const sp2 = 60 + state.rng() * 140;
+    state.particles.push({ x: v.x, y: v.y, vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2 - 50,
+      life: 0.35 + state.rng() * 0.25, color: v.w.color });
+  }
+}
+
 /* ---------- Projectiles ---------- */
 // find the closest living fighter (other than the owner) a projectile is touching
 function projectileTarget(p) {
@@ -494,8 +555,34 @@ function updateProjectiles(dt) {
     if (p.kind === "shuriken") p.spin += dt * 16;
     const foe = projectileTarget(p);
     let dead = false;
+    // KNIGHT reflects incoming shots straight back at whoever fired them
+    if (foe && foe.w.reflect && foe.stunTimer <= 0 && p.owner !== foe && !p.reflected) {
+      if (Math.hypot(foe.x - p.x, foe.y - p.y) < foe.r + 18) {
+        const sender = p.owner;
+        const tx = sender ? sender.x : foe.x - p.vx;
+        const ty = sender ? sender.y : foe.y - p.vy;
+        const ang = Math.atan2(ty - foe.y, tx - foe.x);
+        const sp = Math.hypot(p.vx, p.vy) * 1.15;
+        p.owner = foe;
+        p.reflected = true;
+        if (p.g) { p.fuse = 1.15; p.vx = Math.cos(ang) * sp; p.vy = Math.sin(ang) * sp - 120; }
+        else { p.vx = Math.cos(ang) * sp; p.vy = Math.sin(ang) * sp; }
+        p.x = foe.x + Math.cos(ang) * (foe.r + p.r + 2);
+        p.y = foe.y + Math.sin(ang) * (foe.r + p.r + 2);
+        foe.reflectFlash = 1;
+        addFloat(foe.x, foe.y - foe.r - 24, "REFLECT!", "#a8dadc", true);
+        SFX.block();
+        for (let i = 0; i < 7; i++) {
+          const a = state.rng() * Math.PI * 2, sp2 = 70 + state.rng() * 130;
+          state.particles.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2 - 40,
+            life: 0.3 + state.rng() * 0.2, color: "#a8dadc" });
+        }
+        alive.push(p);
+        continue;
+      }
+    }
     // a nearby spinning weapon acts as a shield: deflect shots, bat bombs back
-    if (foe && (foe.w.attack || "orbit") === "orbit" && foe.stunTimer <= 0) {
+    if (foe && (foe.w.attack || "orbit") === "orbit" && !foe.w.reflect && foe.stunTimer <= 0) {
       const bx = foe.x + Math.cos(foe.wAngle) * foe.r;
       const by = foe.y + Math.sin(foe.wAngle) * foe.r;
       const tp = foe.tip();
@@ -548,9 +635,11 @@ function projectileHit(p, foe) {
     return;
   }
   const o = p.owner;
-  const dmg = Math.round((o.w.dmg + Math.min(4, Math.floor(o.power / 2))) * o.dmgMul);
+  let dmg = Math.round((o.w.dmg + Math.min(4, Math.floor(o.power / 2))) * o.dmgMul);
+  if (p.reflected) dmg = Math.round(dmg * 1.5); // a reflected shot bites harder
   foe.hp = Math.max(0, foe.hp - dmg);
   foe.combo = 0;
+  breakCharge(foe);
   foe.iframes = p.kind === "shuriken" ? 0.4 : 0.8;
   foe.flash = 1;
   foe.lastAttacker = o;
@@ -597,6 +686,7 @@ function explode(p) {
     if (f === o) dmg = Math.round(dmg * 0.6);
     f.hp = Math.max(0, f.hp - dmg);
     f.combo = 0;
+    breakCharge(f);
     f.iframes = 0.8;
     f.flash = 1;
     if (f !== o) { f.lastAttacker = o; o.power = Math.min(o.power + 1, 8); }
@@ -669,9 +759,19 @@ function tryHit(atk, def) {
       break;
   }
 
+  if (atk.w.charge) {
+    // an untouched charger releases everything it stored into this blow
+    dmg = Math.round(dmg * (1 + atk.charge * 2.4));
+    if (atk.charge > 0.6) {
+      crit = true;
+      addFloat(atk.x, atk.y - atk.r - 26, "CHARGED!", "#3a86ff", true);
+    }
+  }
+
   dmg = Math.round(dmg * atk.dmgMul); // royale level-up multiplier
   def.hp = Math.max(0, def.hp - dmg);
   def.combo = 0; // taking a hit breaks the sword's combo
+  breakCharge(def); // getting hit drains a charger's build-up
   def.iframes = 0.85;
   def.flash = 1;
   def.lastAttacker = atk;
@@ -875,7 +975,43 @@ function drawFighter(f) {
     ctx.stroke();
   }
 
-  if ((f.w.attack || "orbit") === "orbit") {
+  // charger: glow ring that brightens as it powers up
+  if (f.w.charge && f.charge > 0.05) {
+    const pulse = 1 + Math.sin(state.time * 16) * 0.08 * f.charge;
+    ctx.strokeStyle = `rgba(58, 134, 255, ${0.25 + f.charge * 0.6})`;
+    ctx.lineWidth = 2 + f.charge * 4;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, (f.r + 10) * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // knight: shield flash right after a reflect
+  if (f.reflectFlash > 0) {
+    ctx.strokeStyle = `rgba(168, 218, 220, ${f.reflectFlash})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r + 14, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  const mode = f.w.attack || "orbit";
+  if (mode === "spike") {
+    // spiker: the body IS the weapon — draw spikes bristling around it
+    const n = 12, len = 9 + f.spikes * 1.4;
+    ctx.fillStyle = f.w.color;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + state.time * 0.6 * f.spinDir;
+      const bx = f.x + Math.cos(a) * f.r, by = f.y + Math.sin(a) * f.r;
+      const tx = f.x + Math.cos(a) * (f.r + len), ty = f.y + Math.sin(a) * (f.r + len);
+      const px = Math.cos(a + 0.16) * (f.r - 2), py = Math.sin(a + 0.16) * (f.r - 2);
+      const qx = Math.cos(a - 0.16) * (f.r - 2), qy = Math.sin(a - 0.16) * (f.r - 2);
+      ctx.beginPath();
+      ctx.moveTo(f.x + px, f.y + py);
+      ctx.lineTo(tx, ty);
+      ctx.lineTo(f.x + qx, f.y + qy);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else if (mode === "orbit") {
     // orbiting weapon: handle + emoji at the tip
     const t = f.tip();
     ctx.strokeStyle = "rgba(255,255,255,0.35)";
