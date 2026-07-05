@@ -50,6 +50,7 @@ const FIGHTER_KEYS = Object.keys(FIGHTERS);
 const MAX_LEN = 110;
 // distinct ring colors for battle royale (index 0/1 also used for 1v1 = red/blue)
 const SIDE_COLORS = ["#ff5d5d", "#5da9ff", "#ffd166", "#06d6a0", "#c77dff", "#fb8500"];
+const UINT32 = 0x100000000; // 2^32 — full uint32 range for seed/RNG normalization
 
 /* ---------- Sound (procedural WebAudio, no assets) ---------- */
 const SFX = (() => {
@@ -104,7 +105,7 @@ function mulberry32(seed) {
     a |= 0; a = (a + 0x6D2B79F5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    return ((t ^ (t >>> 14)) >>> 0) / UINT32;
   };
 }
 
@@ -125,7 +126,7 @@ function readConfig() {
     roster,
     hp: clamp(parseInt(p.get("hp"), 10) || 100, 50, 300),
     spd: clamp(parseFloat(p.get("spd")) || 1, 0.5, 3),
-    seed: (parseInt(p.get("seed"), 10) >>> 0) || ((Math.random() * 4294967296) >>> 0),
+    seed: (parseInt(p.get("seed"), 10) >>> 0) || ((Math.random() * UINT32) >>> 0),
     auto: p.has("a") || p.has("b") || p.has("seed") || p.has("mode"),
   };
 }
@@ -500,16 +501,22 @@ function addFloat(x, y, text, color, big) {
 // any hit that lands resets a charger's build-up
 function breakCharge(f) { if (f.w.charge) f.charge = 0; }
 
+const DRUNK_DODGE_CHANCE = 0.22; // drunk guy's chance to stagger out of the way
+// drunk fighter's dodge, centralized. Draws exactly one rng() and only when the
+// target is the drunk — identical to the old inline checks, so seeds stay stable.
+function dodged(f) {
+  if (f.key !== "drunk" || state.rng() >= DRUNK_DODGE_CHANCE) return false;
+  addFloat(f.x, f.y - f.r - 26, "MISS!", "#ffd166", true);
+  SFX.miss();
+  return true;
+}
+
 // spiker deals contact damage on body collision; its spikes grow per prick.
 // a prick cooldown keeps it from shredding through constant collisions.
 function contactHit(spk, v) {
   if (spk.cooldown > 0 || v.iframes > 0) return;
   spk.cooldown = spk.w.prickCd;
-  if (v.key === "drunk" && state.rng() < 0.22) {
-    addFloat(v.x, v.y - v.r - 26, "MISS!", "#ffd166", true);
-    SFX.miss();
-    return;
-  }
+  if (dodged(v)) return;
   const dmg = Math.round((spk.w.contact + spk.spikes) * spk.dmgMul);
   v.hp = Math.max(0, v.hp - dmg);
   v.combo = 0;
@@ -629,11 +636,7 @@ function updateProjectiles(dt) {
 
 function projectileHit(p, foe) {
   if (foe.iframes > 0) return; // fizzles on an invulnerable target
-  if (foe.key === "drunk" && state.rng() < 0.22) {
-    addFloat(foe.x, foe.y - foe.r - 26, "MISS!", "#ffd166", true);
-    SFX.miss();
-    return;
-  }
+  if (dodged(foe)) return;
   const o = p.owner;
   let dmg = Math.round((o.w.dmg + Math.min(4, Math.floor(o.power / 2))) * o.dmgMul);
   if (p.reflected) dmg = Math.round(dmg * 1.5); // a reflected shot bites harder
@@ -676,11 +679,7 @@ function explode(p) {
     if (!f.alive || f.iframes > 0) continue;
     const d = Math.hypot(f.x - p.x, f.y - p.y);
     if (d > R + f.r) continue;
-    if (f.key === "drunk" && state.rng() < 0.22) {
-      addFloat(f.x, f.y - f.r - 26, "MISS!", "#ffd166", true);
-      SFX.miss();
-      continue;
-    }
+    if (dodged(f)) continue;
     const fall = 1 - (Math.max(0, d - f.r) / R) * 0.5; // full damage center, half at edge
     let dmg = Math.round((o.w.dmg + Math.min(4, Math.floor(o.power / 2))) * o.dmgMul * fall);
     if (f === o) dmg = Math.round(dmg * 0.6);
@@ -707,12 +706,7 @@ function tryHit(atk, def) {
   if (def.iframes > 0) return; // recently hit — untouchable until recovered
 
   // drunk guy staggers out of the way
-  if (def.key === "drunk" && state.rng() < 0.22) {
-    addFloat(def.x, def.y - def.r - 26, "MISS!", "#ffd166", true);
-    atk.cooldown = 0.45;
-    SFX.miss();
-    return;
-  }
+  if (dodged(def)) { atk.cooldown = 0.45; return; }
 
   /* --- per-fighter attack gimmicks --- */
   let dmg = atk.w.dmg;
@@ -1295,7 +1289,7 @@ function setMode(mode) {
 function bindUI() {
   el("hp").addEventListener("input", () => (el("hpVal").textContent = el("hp").value));
   el("spd").addEventListener("input", () => (el("spdVal").textContent = parseFloat(el("spd").value).toFixed(1)));
-  el("btnDice").addEventListener("click", () => (el("seed").value = (Math.random() * 4294967296) >>> 0));
+  el("btnDice").addEventListener("click", () => (el("seed").value = (Math.random() * UINT32) >>> 0));
   el("tabDuel").addEventListener("click", () => setMode("duel"));
   el("tabRoyale").addEventListener("click", () => setMode("br"));
   el("btnRandomRoster").addEventListener("click", () => {
@@ -1318,7 +1312,7 @@ function bindUI() {
   el("btnShareOverlay").addEventListener("click", copyLink);
   el("btnReplay").addEventListener("click", () => startBattle(state.cfg));
   el("btnRematch").addEventListener("click", () => {
-    const cfg = { ...state.cfg, roster: [...state.cfg.roster], seed: (Math.random() * 4294967296) >>> 0 };
+    const cfg = { ...state.cfg, roster: [...state.cfg.roster], seed: (Math.random() * UINT32) >>> 0 };
     state.cfg = cfg;
     refreshPickers();
     startBattle(cfg);
