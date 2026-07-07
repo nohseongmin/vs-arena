@@ -45,12 +45,32 @@ const FIGHTERS = {
   knight:  { emoji: "🛡️", face: "😤", name: "KNIGHT", color: "#8d99ae", body: "circle", r: 34,
              dmg: 11, spin: 2.6, len: 48, growth: 6, reflect: true, knockMul: 0.6,
              gimmick: "reflects shots at sender", snd: { freq: 250, type: "triangle" } },
+  // --- novel-mechanic fighters (ball-fight-shorts inspired) ---
+  phantom: { emoji: "🔮", face: "😈", name: "PHANTOM", color: "#7b2cbf", body: "diamond", r: 32,
+             dmg: 8, spin: 3.2, len: 50, growth: 5, blink: true,
+             gimmick: "blinks — teleports around the arena", snd: { freq: 380, type: "sine" } },
+  frost:   { emoji: "❄️", face: "🥶", name: "FROST", color: "#4cc9f0", body: "circle", r: 32,
+             attack: "frost", dmg: 5, rate: 1.8,
+             gimmick: "ice shards — hits slow the enemy", snd: { freq: 640, type: "sine" } },
+  boomer:  { emoji: "🪃", face: "🤠", name: "BOOMERANG", color: "#f4a259", body: "circle", r: 32,
+             attack: "boomerang", dmg: 7, rate: 2.0,
+             gimmick: "throws that curve back — hits both ways", snd: { freq: 300, type: "triangle" } },
+  vampire: { emoji: "🦇", face: "🧛", name: "VAMPIRE", color: "#9d0208", body: "diamond", r: 32,
+             attack: "bat", dmg: 6, rate: 1.9,
+             gimmick: "bats that heal it for a share of the hit", snd: { freq: 210, type: "sawtooth" } },
 };
 const FIGHTER_KEYS = Object.keys(FIGHTERS);
 const MAX_LEN = 110;
 // distinct ring colors for battle royale (index 0/1 also used for 1v1 = red/blue)
 const SIDE_COLORS = ["#ff5d5d", "#5da9ff", "#ffd166", "#06d6a0", "#c77dff", "#fb8500"];
 const UINT32 = 0x100000000; // 2^32 — full uint32 range for seed/RNG normalization
+// --- novel-mechanic tuning (phantom/frost/boomerang/vampire) ---
+const SLOW_FACTOR = 0.45;      // frost 에 맞은 대상의 이동속도 배수
+const FROST_SLOW_SEC = 1.5;    // 감속 지속시간(초)
+const BAT_LIFESTEAL = 0.6;     // vampire 가 가한 피해 중 회복 비율
+const BLINK_INTERVAL = 3.4;    // phantom 순간이동 기본 주기(초)
+const BOOMERANG_RETURN = 0.55; // 이 시간 뒤 부메랑이 주인에게 되돌아온다
+const BOOMERANG_PULL = 950;    // 되돌아오는 조향력
 
 /* ---------- Sound (procedural WebAudio, no assets) ---------- */
 const SFX = (() => {
@@ -161,7 +181,8 @@ function living() { return state.fighters.filter((f) => f.alive); }
 // "melee-like" = fights in close quarters (swings a weapon or rams with spikes),
 // as opposed to the ranged shooters. Drives targeting/movement instincts.
 function isMelee(f) { const a = f.w.attack || "orbit"; return a === "orbit" || a === "spike"; }
-function isRanged(f) { const a = f.w.attack || "orbit"; return a === "arrow" || a === "shuriken" || a === "bomb"; }
+const RANGED_ATTACKS = new Set(["arrow", "shuriken", "bomb", "frost", "boomerang", "bat"]);
+function isRanged(f) { return RANGED_ATTACKS.has(f.w.attack || "orbit"); }
 function nearestEnemy(f) {
   let best = null, bd = Infinity;
   for (const o of state.fighters) {
@@ -224,6 +245,8 @@ class Fighter {
     this.charge = 0;      // charger: builds while untouched, resets when hit
     this.spikes = 0;      // spiker: contact damage grows per prick
     this.reflectFlash = 0; // knight: glow after a reflect
+    this.blinkTimer = BLINK_INTERVAL; // phantom: time to next teleport
+    this.slowTimer = 0;    // frost victim: reduced movement while > 0
     // royale progression
     this.kills = 0;
     this.level = 1;
@@ -258,6 +281,7 @@ class Fighter {
     if (this.key === "axe") {
       speedTarget *= 1 + (1 - this.hp / this.maxHp) * 0.5; // rage: faster when hurt
     }
+    if (this.slowTimer > 0) speedTarget *= SLOW_FACTOR; // frost: chilled and sluggish
     // kiting: shooters back off when an enemy closes in. Archer always kites
     // (its 1v1 identity); ninja only kites in a royale swarm so 1v1 is unchanged.
     const br = state.cfg.mode === "br";
@@ -281,6 +305,19 @@ class Fighter {
       }
     }
 
+    if (this.w.blink) {
+      // phantom: periodically vanish and reappear somewhere random (novel movement)
+      this.blinkTimer -= dt;
+      if (this.blinkTimer <= 0) {
+        this.blinkTimer = BLINK_INTERVAL + state.rng() * 1.6;
+        blinkPoof(this.x, this.y, this.w.color);
+        this.x = AR.l + this.r + state.rng() * (AR.r - AR.l - this.r * 2);
+        this.y = AR.t + this.r + state.rng() * (AR.b - AR.t - this.r * 2);
+        blinkPoof(this.x, this.y, this.w.color);
+        this.iframes = Math.max(this.iframes, 0.2); // brief mercy on arrival
+        SFX.whoosh();
+      }
+    }
     this.x += this.vx * dt;
     this.y += this.vy * dt;
     // arena walls
@@ -302,6 +339,7 @@ class Fighter {
     this.iframes = Math.max(0, this.iframes - dt);
     this.flash = Math.max(0, this.flash - dt * 3);
     this.reflectFlash = Math.max(0, this.reflectFlash - dt * 2);
+    this.slowTimer = Math.max(0, this.slowTimer - dt);
   }
 }
 
@@ -381,7 +419,7 @@ function step(dt) {
     // archers and ninjas can't shoot at melee range — but in a royale swarm the
     // lockout is looser so they can still contribute instead of just dying
     const blockRange = state.cfg.mode === "br" ? 60 : 130;
-    if (mode !== "bomb" && d < blockRange) {
+    if (mode !== "bomb" && mode !== "boomerang" && d < blockRange) {
       me.fireTimer = 0.4;
       continue;
     }
@@ -405,6 +443,20 @@ function step(dt) {
       const tx = foe.x + foe.vx * t * 0.5 + jitter() * 260, ty = foe.y + foe.vy * t * 0.5 + jitter() * 260;
       state.projectiles.push({ kind: "bomb", owner: me, x: me.x, y: me.y - me.r,
         vx: (tx - me.x) / t, vy: (ty - me.y) / t - 160, g: 520, fuse: 1.15, r: 9 * scale, life: 5 });
+    } else if (mode === "frost") {
+      const sp = 420, t = d / sp;
+      const a = Math.atan2(foe.y + foe.vy * t * 0.7 - me.y, foe.x + foe.vx * t * 0.7 - me.x) + jitter();
+      state.projectiles.push({ kind: "frost", owner: me, x: me.x + Math.cos(a) * (me.r + 8),
+        y: me.y + Math.sin(a) * (me.r + 8), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 6 * scale, life: 3 });
+    } else if (mode === "bat") {
+      const sp = 400, t = d / sp;
+      const a = Math.atan2(foe.y + foe.vy * t * 0.7 - me.y, foe.x + foe.vx * t * 0.7 - me.x) + jitter();
+      state.projectiles.push({ kind: "bat", owner: me, x: me.x + Math.cos(a) * (me.r + 8),
+        y: me.y + Math.sin(a) * (me.r + 8), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 7 * scale, life: 3 });
+    } else if (mode === "boomerang") {
+      const sp = 430, a = Math.atan2(dy, dx) + jitter() * 0.4;
+      state.projectiles.push({ kind: "boomerang", owner: me, x: me.x + Math.cos(a) * (me.r + 8),
+        y: me.y + Math.sin(a) * (me.r + 8), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 8 * scale, life: 3.2, age: 0, spin: 0 });
     }
     SFX.shoot(me.w);
   }
@@ -498,6 +550,16 @@ function addFloat(x, y, text, color, big) {
   state.floats.push({ x, y, text, color, life: big ? 1.1 : 0.8, big: !!big });
 }
 
+// phantom teleport puff — a ring of particles at a blink point
+function blinkPoof(x, y, color) {
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const sp = 90 + state.rng() * 120;
+    state.particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      life: 0.3 + state.rng() * 0.2, color });
+  }
+}
+
 // any hit that lands resets a charger's build-up
 function breakCharge(f) { if (f.w.charge) f.charge = 0; }
 
@@ -556,6 +618,17 @@ function updateProjectiles(dt) {
   const alive = [];
   for (const p of state.projectiles) {
     if (p.g) { p.vy += p.g * dt; p.fuse -= dt; }
+    if (p.kind === "boomerang") {
+      p.age += dt; p.spin += dt * 20;
+      if (p.age > BOOMERANG_RETURN && p.owner && p.owner.alive) {
+        const ax = p.owner.x - p.x, ay = p.owner.y - p.y, ad = Math.hypot(ax, ay) || 1;
+        const spB = Math.hypot(p.vx, p.vy) || 1;
+        p.vx += (ax / ad) * BOOMERANG_PULL * dt;
+        p.vy += (ay / ad) * BOOMERANG_PULL * dt;
+        const ns = Math.hypot(p.vx, p.vy) || 1;
+        p.vx = p.vx / ns * spB; p.vy = p.vy / ns * spB;
+      }
+    }
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     p.life -= dt;
@@ -622,11 +695,15 @@ function updateProjectiles(dt) {
         dead = true;
       }
     } else {
-      if (p.x < AR.l || p.x > AR.r || p.y < AR.t || p.y > AR.b) dead = true;
-      else if (foe && Math.hypot(foe.x - p.x, foe.y - p.y) < foe.r + p.r) {
-        projectileHit(p, foe);
-        dead = true;
-      }
+      const hit = foe && Math.hypot(foe.x - p.x, foe.y - p.y) < foe.r + p.r;
+      const oob = p.x < AR.l || p.x > AR.r || p.y < AR.t || p.y > AR.b;
+      if (hit) { projectileHit(p, foe); dead = true; }
+      else if (p.kind === "boomerang") {
+        // boomerang doesn't die at the wall — it curves back; caught by owner = gone
+        if (oob) { p.x = clamp(p.x, AR.l, AR.r); p.y = clamp(p.y, AR.t, AR.b); }
+        if (p.age > BOOMERANG_RETURN && p.owner && p.owner.alive &&
+            Math.hypot(p.owner.x - p.x, p.owner.y - p.y) < p.owner.r + p.r) dead = true;
+      } else if (oob) dead = true;
     }
     if (p.life <= 0) dead = true;
     if (!dead) alive.push(p);
@@ -652,6 +729,15 @@ function projectileHit(p, foe) {
   foe.vx += (p.vx / kd) * kn;
   foe.vy += (p.vy / kd) * kn;
   o.power = Math.min(o.power + 1, 8); // thrown weapons grow stronger per hit
+  if (p.kind === "frost") {
+    foe.slowTimer = FROST_SLOW_SEC;
+    addFloat(foe.x, foe.y - foe.r - 26, "SLOW!", "#4cc9f0", true);
+  }
+  if (p.kind === "bat" && o.alive) {
+    const heal = Math.round(dmg * BAT_LIFESTEAL);
+    o.hp = Math.min(o.maxHp, o.hp + heal);
+    addFloat(o.x, o.y - o.r - 24, "+" + heal, "#ff5d8f", false);
+  }
   state.shake = 6;
   SFX.hit(o.w);
   for (let i = 0; i < 8; i++) {
@@ -1114,6 +1200,38 @@ function drawProjectiles() {
       }
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
+    } else if (p.kind === "frost") {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(Math.atan2(p.vy, p.vx));
+      ctx.fillStyle = "#a8e8ff";
+      ctx.strokeStyle = "#4cc9f0";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(p.r * 1.6, 0); ctx.lineTo(0, -p.r * 0.7);
+      ctx.lineTo(-p.r, 0); ctx.lineTo(0, p.r * 0.7);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    } else if (p.kind === "bat") {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.fillStyle = "#141018";
+      ctx.beginPath();
+      ctx.arc(-p.r * 0.5, 0, p.r * 0.7, 0, Math.PI * 2);
+      ctx.arc(p.r * 0.5, 0, p.r * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else if (p.kind === "boomerang") {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.spin || 0);
+      ctx.strokeStyle = "#f4a259";
+      ctx.lineWidth = p.r * 0.7;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(-p.r, p.r); ctx.lineTo(0, -p.r); ctx.lineTo(p.r, p.r);
+      ctx.stroke();
       ctx.restore();
     } else { // bomb
       ctx.font = Math.round(15 + p.r) + "px system-ui";
