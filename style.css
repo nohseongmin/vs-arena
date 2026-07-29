@@ -125,7 +125,73 @@ main {
   background: #23263f;
   box-shadow: 0 0 0 1px var(--pick-ring, var(--accent)) inset;
 }
-.hidden { display: none; }
+/* utility class must beat the id-selector display rules on the panels it hides */
+.hidden { display: none !important; }
+
+/* fighter editor */
+.btn.wide { width: 100%; }
+#editor {
+  background: var(--panel);
+  border: 1px solid #2c3157;
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#editor.hidden { display: none; }
+.editor-head { display: flex; align-items: center; justify-content: space-between; }
+.editor-head strong { letter-spacing: 1px; font-size: 0.9rem; }
+
+.saved-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.saved-chip {
+  background: var(--panel2);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  color: var(--text);
+  padding: 5px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.saved-chip.active { border-color: var(--accent); }
+
+.ed-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel2);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.ed-preview .emoji { font-size: 1.6rem; }
+.ed-preview .gimmick { color: var(--muted); font-size: 0.7rem; margin-left: auto; text-align: right; }
+
+.ed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ed-grid label, .ed-stats label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+}
+.ed-grid .wide-field { grid-column: 1 / -1; }
+/* grid items default to min-width:auto, so long option labels would widen the
+   column past the viewport — pin them so the fields stay inside the page */
+.ed-grid label, .ed-grid input, .ed-grid select { min-width: 0; max-width: 100%; }
+.ed-grid input, .ed-grid select {
+  background: var(--panel2);
+  border: 1px solid #2c3157;
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 9px;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+.ed-grid input[type="color"] { padding: 2px; height: 34px; }
+.ed-stats label { flex-direction: row; align-items: center; gap: 10px; }
+.ed-stats > div { display: flex; flex-direction: column; gap: 8px; }
 
 .sliders { display: flex; flex-direction: column; gap: 8px; }
 .sliders label { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 10px; }

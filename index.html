@@ -20,7 +20,7 @@
   <meta name="twitter:title" content="VS Arena — Weapon Battle Simulator">
   <meta name="twitter:description" content="Pick two fighters. Physics decides. Share the exact battle with a link.">
   <meta name="twitter:image" content="https://nohseongmin.github.io/vs-arena/og.png">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
   <header>
@@ -90,6 +90,59 @@
         <button id="btnShare" class="btn secondary big">🔗 Copy Link</button>
         <button id="btnMute" class="btn secondary" title="Sound on/off">🔊</button>
       </div>
+      <button id="btnCreate" class="btn secondary wide">🛠️ CREATE YOUR OWN FIGHTER</button>
+    </section>
+
+    <section id="editor" class="hidden">
+      <div class="editor-head">
+        <strong>🛠️ FIGHTER EDITOR</strong>
+        <button id="edClose" class="btn tiny">✕</button>
+      </div>
+
+      <div id="edSaved" class="saved-row"></div>
+
+      <div class="ed-preview">
+        <span id="edPrevEmoji" class="emoji">🙂⭐</span>
+        <span id="edPrevName">CUSTOM</span>
+        <span id="edPrevGim" class="gimmick">no special effect</span>
+      </div>
+
+      <div class="ed-grid">
+        <label>Name<input type="text" id="edName" maxlength="14" placeholder="MY FIGHTER"></label>
+        <label>Weapon<input type="text" id="edEmoji" maxlength="4" placeholder="⭐"></label>
+        <label>Face<input type="text" id="edFace" maxlength="4" placeholder="🙂"></label>
+        <label>Color<input type="color" id="edColor" value="#7ae582"></label>
+        <label>Body<select id="edBody"></select></label>
+        <label>Attack<select id="edAttack"></select></label>
+        <label class="wide-field">Gimmick<select id="edGim"></select></label>
+      </div>
+
+      <div class="sliders ed-stats">
+        <label>Damage <span id="edDmgVal">8</span>
+          <input type="range" id="edDmg" min="3" max="20" step="1" value="8">
+        </label>
+        <div id="edMeleeStats">
+          <label>Spin <span id="edSpinVal">2.6</span>
+            <input type="range" id="edSpin" min="1.2" max="4" step="0.1" value="2.6">
+          </label>
+          <label>Reach <span id="edLenVal">50</span>
+            <input type="range" id="edLen" min="30" max="70" step="1" value="50">
+          </label>
+          <label>Growth <span id="edGrowVal">5</span>
+            <input type="range" id="edGrow" min="0" max="10" step="1" value="5">
+          </label>
+        </div>
+        <div id="edRangedStats" class="hidden">
+          <label>Fire rate <span id="edRateVal">1.9</span>s
+            <input type="range" id="edRate" min="1.2" max="3.2" step="0.1" value="1.9">
+          </label>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button id="edSave" class="btn primary big">💾 Save fighter</button>
+        <button id="edDelete" class="btn secondary">🗑️</button>
+      </div>
     </section>
 
     <div class="ad-slot">AD SLOT (reserved)</div>
@@ -100,8 +153,6 @@
   </footer>
 
   <div id="toast" class="hidden"></div>
-  <script src="game.js?v=13"></script>
-  <!-- GoatCounter analytics (privacy-friendly, no cookies) -->
-  <script data-goatcounter="https://nohseongmin.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+  <script src="game.js?v=14"></script>
 </body>
 </html>
