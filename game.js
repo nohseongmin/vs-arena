@@ -759,7 +759,7 @@ function contactHit(spk, v) {
   const dmg = Math.round((spk.w.contact + spk.spikes) * spk.dmgMul);
   v.hp = Math.max(0, v.hp - dmg);
   v.combo = 0;
-  v.iframes = 0.85;
+  v.iframes = IFRAMES_HIT;
   v.flash = 1;
   v.lastAttacker = spk;
   breakCharge(v);
@@ -925,9 +925,9 @@ function explode(p) {
     f.hp = Math.max(0, f.hp - dmg);
     f.combo = 0;
     breakCharge(f);
-    f.iframes = 0.8;
+    f.iframes = IFRAMES_SHOT;
     f.flash = 1;
-    if (f !== o) { f.lastAttacker = o; o.power = Math.min(o.power + 1, 8); }
+    if (f !== o) { f.lastAttacker = o; o.power = Math.min(o.power + 1, POWER_CAP); }
     addFloat(f.x + 18, f.y - 6, "-" + dmg, "#ffcc33", true);
     const kd = d || 1;
     const km = f.w.knockMul || 1;
