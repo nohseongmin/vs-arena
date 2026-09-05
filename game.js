@@ -79,6 +79,7 @@ const KNOCK_MELEE = 390;       // 근접 타격 기본 넉백
 const CHARGE_RATE = 0.28;      // 초당 충전량 (1.0 = 만충)
 const CHARGE_MAX_BONUS = 2.4;  // 만충 시 추가 데미지 배수
 const POWER_CAP = 8;           // 투척무기 성장 상한
+const TRAIL_POINTS = 26;       // 잔상 꼬리에 남기는 위치 개수
 
 /* ---------- Gimmicks: data-driven so custom fighters can pick one ----------
    onHit(atk, def, c) tweaks the hit context c = { dmg, crit, knock, pull }.
@@ -180,8 +181,15 @@ const SFX = (() => {
   }
   return {
     unlock() { if (!muted) try { ac(); } catch {} },
-    hit(w) { blip(w.snd.freq, 0.09, w.snd.type, 0.14, 0.45); },
-    crit(w) { blip(w.snd.freq * 1.5, 0.14, w.snd.type, 0.2, 0.3); blip(w.snd.freq * 2.2, 0.1, "square", 0.12, 0.6); },
+    hit(w) {
+      blip(w.snd.freq, 0.09, w.snd.type, 0.14, 0.45);
+      blip(70, 0.13, "sine", 0.16, 0.5);       // body thump under every impact
+    },
+    crit(w) {
+      blip(w.snd.freq * 1.5, 0.14, w.snd.type, 0.2, 0.3);
+      blip(w.snd.freq * 2.2, 0.1, "square", 0.12, 0.6);
+      blip(55, 0.22, "sine", 0.24, 0.45);      // the crit you feel
+    },
     whoosh() { blip(120, 0.35, "sawtooth", 0.08, 0.25); },
     miss() { blip(600, 0.07, "triangle", 0.1, 1.4); },
     bounce() { blip(70, 0.04, "sine", 0.05, 0.7); },
@@ -419,6 +427,7 @@ class Fighter {
     this.charge = 0;      // charger: builds while untouched, resets when hit
     this.spikes = 0;      // spiker: contact damage grows per prick
     this.reflectFlash = 0; // knight: glow after a reflect
+    this.trail = [];       // recent positions, drawn as a dotted wake
     this.blinkTimer = BLINK_INTERVAL; // phantom: time to next teleport
     this.slowTimer = 0;    // frost victim: reduced movement while > 0
     // royale progression
@@ -512,6 +521,8 @@ class Fighter {
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.iframes = Math.max(0, this.iframes - dt);
     this.flash = Math.max(0, this.flash - dt * 3);
+    this.trail.push(this.x, this.y);
+    if (this.trail.length > TRAIL_POINTS * 2) this.trail.splice(0, 2);
     this.reflectFlash = Math.max(0, this.reflectFlash - dt * 2);
     this.slowTimer = Math.max(0, this.slowTimer - dt);
   }
@@ -684,7 +695,7 @@ function reap() {
     if (!f.alive || f.hp > 0) continue;
     f.alive = false;
     addFloat(f.x, f.y - f.r - 20, "OUT!", "#ff5d5d", true);
-    burst(f.x, f.y, { n: 22, color: f.w.color, spMin: 80, spRand: 200, lifeMin: 0.4, lifeRand: 0.3, vy: 60 });
+    burst(f.x, f.y, { n: 40, color: f.w.color, spMin: 90, spRand: 260, lifeMin: 0.5, lifeRand: 0.4, vy: 60, rMax: 7 });
     const killer = f.lastAttacker;
     if (killer && killer.alive && killer !== f) levelUp(killer);
   }
@@ -719,14 +730,14 @@ function addFloat(x, y, text, color, big) {
    `ring` lays particles out evenly instead and skips the angle draw. */
 function burst(x, y, o) {
   for (let i = 0; i < o.n; i++) {
-    const a = o.ring ? (i / o.n) * Math.PI * 2 : state.rng() * Math.PI * 2;
-    const sp = o.spMin + state.rng() * o.spRand;
-    const life = o.lifeMin + state.rng() * o.lifeRand;
+    const a = o.ring ? (i / o.n) * Math.PI * 2 : Math.random() * Math.PI * 2;
+    const sp = o.spMin + Math.random() * o.spRand;
     state.particles.push({
       x, y,
       vx: Math.cos(a) * sp,
       vy: Math.sin(a) * sp - (o.vy || 0),
-      life,
+      life: o.lifeMin + Math.random() * o.lifeRand,
+      r: 2 + Math.random() * (o.rMax || 4),
       color: typeof o.color === "function" ? o.color(i) : o.color,
     });
   }
@@ -771,7 +782,7 @@ function contactHit(spk, v) {
   spk.spikes = Math.min(6, spk.spikes + spk.w.spikeGrow); // spikes grow with use
   state.shake = 7;
   SFX.hit(spk.w);
-  burst(v.x, v.y, { n: 8, color: v.w.color, spMin: 60, spRand: 140, lifeMin: 0.35, lifeRand: 0.25, vy: 50 });
+  burst(v.x, v.y, { n: 16, color: "#ffffff", spMin: 60, spRand: 150, lifeMin: 0.3, lifeRand: 0.3, vy: 50, rMax: 5 });
 }
 
 /* ---------- Projectiles ---------- */
@@ -902,15 +913,15 @@ function projectileHit(p, foe) {
   if (shot.onHit) shot.onHit(o, foe, dmg);
   state.shake = 6;
   SFX.hit(o.w);
-  burst(p.x, p.y, { n: 8, color: foe.w.color, spMin: 50, spRand: 140, lifeMin: 0.35, lifeRand: 0.25, vy: 50 });
+  burst(p.x, p.y, { n: 14, color: "#ffffff", spMin: 60, spRand: 160, lifeMin: 0.3, lifeRand: 0.3, vy: 50, rMax: 5 });
 }
 
 function explode(p) {
   state.shake = 13;
   SFX.boom();
   addFloat(p.x, p.y - 12, "BOOM!", "#ef476f", true);
-  burst(p.x, p.y, { n: 26, spMin: 90, spRand: 240, lifeMin: 0.45, lifeRand: 0.35, vy: 60,
-    color: (i) => (i % 3 ? "#f8961e" : "#ffcc33") });
+  burst(p.x, p.y, { n: 44, spMin: 90, spRand: 280, lifeMin: 0.45, lifeRand: 0.4, vy: 60, rMax: 8,
+    color: (i) => (i % 3 ? "#f8961e" : "#ffffff") });
   // the blast catches everyone in range — the owner just takes it lighter
   const o = p.owner;
   const R = 85;
@@ -976,129 +987,190 @@ function tryHit(atk, def) {
   atk.spin = Math.min(atk.spin * 1.03, atk.w.spin * 1.8);
   state.shake = crit ? 11 : 7;
   if (crit) SFX.crit(atk.w); else SFX.hit(atk.w);
-  burst(t.x, t.y, { n: crit ? 18 : 10, color: def.w.color, spMin: 60, spRand: 160,
-    lifeMin: 0.4, lifeRand: 0.3, vy: 60 });
+  burst(t.x, t.y, { n: crit ? 30 : 18, color: "#ffffff", spMin: 70, spRand: 190,
+    lifeMin: 0.35, lifeRand: 0.35, vy: 50, rMax: crit ? 8 : 5 });
+  burst(t.x, t.y, { n: 6, color: def.w.color, spMin: 40, spRand: 120,
+    lifeMin: 0.3, lifeRand: 0.25, vy: 40, rMax: 4 });
 }
 
-/* ---------- Rendering ---------- */
+/* ---------- Rendering ----------
+   The look is the product here: a black void, neon bodies that bloom, dotted
+   wakes, and a burst of light on every hit. Everything below is cosmetic — it
+   never reads the seeded RNG, so effects can be retuned without changing a
+   single battle outcome.                                                     */
+const GLOW = { body: 26, weapon: 16, text: 12, particle: 10 };
+
+// run a draw call with a coloured bloom around it
+function glow(color, blur, fn) {
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur;
+  fn();
+  ctx.restore();
+}
+
 function draw() {
   ctx.save();
   if (state.shake > 0) {
     ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
   }
-  ctx.clearRect(-12, -12, W + 24, H + 24);
+  // pure black void — contrast is what makes the neon read
+  ctx.fillStyle = "#000";
+  ctx.fillRect(-12, -12, W + 24, H + 24);
 
-  // backdrop
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "#12152a");
-  g.addColorStop(1, "#0a0c16");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-
-  // arena box
-  ctx.fillStyle = "#0d1020";
-  roundRectPath(AR.l - 6, AR.t - 6, AR.r - AR.l + 12, AR.b - AR.t + 12, 18);
-  ctx.fill();
-  ctx.strokeStyle = "rgba(255, 204, 51, 0.35)";
-  ctx.lineWidth = 3;
-  roundRectPath(AR.l - 6, AR.t - 6, AR.r - AR.l + 12, AR.b - AR.t + 12, 18);
-  ctx.stroke();
-  ctx.strokeStyle = "rgba(255,255,255,0.05)";
-  ctx.lineWidth = 1;
-  for (let y = AR.t + 40; y < AR.b; y += 44) {
-    ctx.beginPath(); ctx.moveTo(AR.l, y); ctx.lineTo(AR.r, y); ctx.stroke();
-  }
-
+  drawArena();
   drawHud();
 
+  for (const f of state.fighters) if (f.alive) drawTrail(f);
   for (const f of state.fighters) if (f.alive) drawFighter(f);
   drawProjectiles();
+  drawParticles();
+  drawFloats();
 
-  for (const pt of state.particles) {
-    ctx.globalAlpha = Math.max(0, pt.life / 0.6);
-    ctx.fillStyle = pt.color;
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-
-  // floating combat text
-  for (const fl of state.floats) {
-    ctx.globalAlpha = Math.min(1, fl.life * 2);
-    ctx.font = (fl.big ? "900 22px" : "700 15px") + " system-ui";
-    ctx.textAlign = "center";
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(0,0,0,0.6)";
-    ctx.strokeText(fl.text, fl.x, fl.y);
-    ctx.fillStyle = fl.color;
-    ctx.fillText(fl.text, fl.x, fl.y);
-  }
-  ctx.globalAlpha = 1;
-
-  // seed tag
-  ctx.fillStyle = "rgba(255,255,255,0.25)";
-  ctx.font = "11px monospace";
+  ctx.fillStyle = "rgba(255,255,255,0.22)";
+  ctx.font = "10px monospace";
   ctx.textAlign = "right";
-  ctx.fillText("seed " + state.cfg.seed, W - 8, H - 10);
+  ctx.fillText("seed " + state.cfg.seed, W - 10, H - 8);
   ctx.restore();
 }
 
-function drawHud() {
-  if (state.cfg.mode === "br") { drawRoyaleHud(); return; }
-  const [f1, f2] = state.fighters;
-  const pad = 12, barH = 16, half = (W - pad * 3) / 2;
-  ctx.textAlign = "left";
-  ctx.font = "700 13px system-ui";
-  for (const { f, x } of [{ f: f1, x: pad }, { f: f2, x: pad * 2 + half }]) {
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
-    roundRectPath(x, 46, half, barH, 8);
-    ctx.fill();
-    const ratio = f.hp / f.maxHp;
-    ctx.fillStyle = f.sideColor;
-    if (ratio > 0) { roundRectPath(x, 46, half * ratio, barH, 8); ctx.fill(); }
-    ctx.fillStyle = "#e8eaf6";
-    ctx.fillText(f.w.face + " " + f.w.name, x, 38);
-    ctx.fillStyle = "rgba(255,255,255,0.7)";
-    ctx.font = "600 11px system-ui";
-    ctx.fillText(Math.ceil(Math.max(0, f.hp)) + " HP", x, 76);
-    ctx.font = "700 13px system-ui";
+// hand-drawn feel: each edge wobbles instead of ruling a clean rectangle
+function drawArena() {
+  const { l, t, r, b } = AR, wob = 2.5, seg = 26;
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  const corners = [[l, t], [r, t], [r, b], [l, b]];
+  for (let c = 0; c < 4; c++) {
+    const [x1, y1] = corners[c];
+    const [x2, y2] = corners[(c + 1) % 4];
+    const steps = Math.max(2, Math.round(Math.hypot(x2 - x1, y2 - y1) / seg));
+    for (let i = 0; i <= steps; i++) {
+      const p = i / steps;
+      // wobble derived from the index, so the border stays put frame to frame
+      const n = Math.sin((c * 9 + i) * 12.9898) * 43758.5453;
+      const off = ((n - Math.floor(n)) - 0.5) * wob * 2;
+      const x = x1 + (x2 - x1) * p + (y1 === y2 ? 0 : off);
+      const y = y1 + (y2 - y1) * p + (x1 === x2 ? 0 : off);
+      if (c === 0 && i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
   }
-  ctx.fillStyle = "#ffcc33";
-  ctx.font = "900 15px system-ui";
-  ctx.textAlign = "center";
-  ctx.fillText("VS", W / 2, 60);
+  ctx.closePath();
+  glow("#ffffff", 8, () => ctx.stroke());
 }
 
-function drawRoyaleHud() {
-  const n = living().length;
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#ffcc33";
-  ctx.font = "900 26px system-ui";
-  ctx.fillText(state.over ? "WINNER!" : n + " LEFT", W / 2, 44);
-  // compact standings: emoji + hp pip per fighter, sorted by current hp
-  const order = [...state.fighters].sort((a, b) => (b.alive - a.alive) || (b.hp - a.hp));
-  const cols = order.length, cellW = Math.min(70, (W - 20) / cols), startX = (W - cellW * cols) / 2 + cellW / 2;
-  ctx.font = "20px system-ui";
-  for (let i = 0; i < order.length; i++) {
-    const f = order[i], cx = startX + i * cellW;
-    ctx.globalAlpha = f.alive ? 1 : 0.3;
-    ctx.fillText(f.w.face + f.w.emoji, cx, 74);
-    // hp pip
-    const bw = cellW - 16;
-    ctx.fillStyle = "rgba(255,255,255,0.12)";
-    roundRectPath(cx - bw / 2, 82, bw, 6, 3); ctx.fill();
-    ctx.fillStyle = f.alive ? f.sideColor : "#555";
-    const r = Math.max(0, f.hp / f.maxHp);
-    if (r > 0) { roundRectPath(cx - bw / 2, 82, bw * r, 6, 3); ctx.fill(); }
-    if (f.kills > 0) {
-      ctx.fillStyle = "#ffcc33";
-      ctx.font = "700 10px system-ui";
-      ctx.fillText("💀" + f.kills, cx, 102);
-      ctx.font = "20px system-ui";
-    }
-    ctx.globalAlpha = 1;
+function drawTrail(f) {
+  const pts = f.trail, n = Math.floor(pts.length / 2);
+  ctx.fillStyle = f.w.color;
+  for (let i = 0; i < n; i += 2) {
+    const age = i / n;
+    ctx.globalAlpha = age * 0.5;
+    ctx.beginPath();
+    ctx.arc(pts[i * 2], pts[i * 2 + 1], 1.5 + age * 2, 0, Math.PI * 2);
+    ctx.fill();
   }
+  ctx.globalAlpha = 1;
+}
+
+function drawParticles() {
+  for (const p of state.particles) {
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life / 0.5));
+    ctx.fillStyle = p.color;
+    glow(p.color, GLOW.particle, () => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r || 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFloats() {
+  for (const fl of state.floats) {
+    ctx.globalAlpha = Math.min(1, fl.life * 2);
+    ctx.font = (fl.big ? "900 24px" : "800 16px") + " system-ui";
+    ctx.textAlign = "center";
+    ctx.fillStyle = fl.color;
+    glow(fl.color, GLOW.text, () => ctx.fillText(fl.text, fl.x, fl.y));
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ---------- HUD: name banner up top, live state readout underneath -------- */
+function drawHud() {
+  ctx.textAlign = "center";
+  if (state.cfg.mode === "br") {
+    ctx.font = "900 26px system-ui";
+    ctx.fillStyle = "#fff";
+    const label = state.over ? "WINNER!" : living().length + " LEFT";
+    glow("#ffffff", GLOW.text, () => ctx.fillText(label, W / 2, 46));
+  } else {
+    // "PICKAXE  VS  ANGLER", each name in its own fighter colour
+    const [a, b] = state.fighters;
+    ctx.font = "900 20px system-ui";
+    const gap = ctx.measureText("  VS  ").width;
+    const aw = ctx.measureText(a.w.name).width;
+    const left = W / 2 - (aw + gap + ctx.measureText(b.w.name).width) / 2;
+    ctx.textAlign = "left";
+    ctx.fillStyle = a.w.color;
+    glow(a.w.color, GLOW.text, () => ctx.fillText(a.w.name, left, 52));
+    ctx.fillStyle = "#8b90b3";
+    ctx.fillText("VS", left + aw + gap * 0.28, 52);
+    ctx.fillStyle = b.w.color;
+    glow(b.w.color, GLOW.text, () => ctx.fillText(b.w.name, left + aw + gap, 52));
+  }
+  drawReadout();
+}
+
+// the console-style status block these sims always run under the arena.
+// A duel gets the three stacked lines; a royale gets one row per fighter,
+// because six names on one line runs off the canvas.
+function drawReadout() {
+  const fs = state.fighters, y = AR.b + 20;
+  const hpOf = (f) => (f.alive ? Math.ceil(Math.max(0, f.hp)) : "DEAD");
+  ctx.font = "10px monospace";
+  if (fs.length > 2) {
+    ctx.textAlign = "left";
+    fs.forEach((f, i) => {
+      const row = y + i * 11;
+      ctx.fillStyle = f.alive ? "#cdd3e0" : "#5b6180";
+      ctx.fillText(f.w.name.slice(0, 9).padEnd(10) + String(hpOf(f)).padStart(4), AR.l, row);
+      ctx.fillStyle = f.alive ? "#8bd450" : "#3f4a30";
+      ctx.fillText("DMG " + String(hitPower(f)).padStart(3), AR.l + 100, row);
+      ctx.fillStyle = f.alive ? "#c77dff" : "#4a3a5b";
+      ctx.fillText("[" + fighterState(f) + "]", AR.l + 160, row);
+    });
+    return;
+  }
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#cdd3e0";
+  ctx.fillText(fs.map((f) => f.w.name + ": " + hpOf(f)).join("  |  "), W / 2, y);
+  ctx.fillStyle = "#8bd450";
+  ctx.fillText(fs.map((f) => "DMG " + hitPower(f)).join("  |  "), W / 2, y + 13);
+  ctx.fillStyle = "#c77dff";
+  ctx.fillText(fs.map((f) => "[" + fighterState(f) + "]").join(" | "), W / 2, y + 26);
+}
+
+// what a fighter is doing right now, for the readout line
+function fighterState(f) {
+  if (!f.alive) return "DEAD";
+  if (f.stunTimer > 0) return "STUNNED";
+  if (f.slowTimer > 0) return "FROZEN";
+  if (f.iframes > 0) return "KNOCKBACK";
+  if (f.w.gim === "charge" && f.charge > 0.25) return "CHARGING";
+  if (f.gravActive > 0) return "GRAVITY";
+  return "NORMAL";
+}
+
+// headline number: what this fighter's next hit is worth right now
+function hitPower(f) {
+  if (f.w.attack === "spike") return Math.round((f.w.contact + f.spikes) * f.dmgMul);
+  if (isRanged(f)) return Math.round(thrownDmg(f));
+  let d = f.w.dmg * f.dmgMul;
+  if (f.w.gim === "charge") d *= 1 + f.charge * CHARGE_MAX_BONUS;
+  if (f.w.gim === "combo") d += f.combo * 4;
+  if (f.w.gim === "rage") d *= 1 + (1 - f.hp / f.maxHp) * 0.8;
+  return Math.round(d);
 }
 
 function roundRectPath(x, y, w, h, r) {
@@ -1137,137 +1209,116 @@ function bodyPath(f) {
 }
 
 function drawFighter(f) {
-  // gravity well ring
-  if (f.gravActive > 0) {
-    const pulse = 1 + Math.sin(state.time * 14) * 0.12;
-    ctx.strokeStyle = "rgba(157, 78, 221, 0.55)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, (f.r + 22) * pulse, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(157, 78, 221, 0.25)";
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, (f.r + 44) * pulse, 0, Math.PI * 2);
-    ctx.stroke();
-  }
+  const col = f.w.color;
 
-  // charger: glow ring that brightens as it powers up
-  if (f.w.gim === "charge" && f.charge > 0.05) {
-    const pulse = 1 + Math.sin(state.time * 16) * 0.08 * f.charge;
-    ctx.strokeStyle = `rgba(58, 134, 255, ${0.25 + f.charge * 0.6})`;
-    ctx.lineWidth = 2 + f.charge * 4;
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, (f.r + 10) * pulse, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  // knight: shield flash right after a reflect
-  if (f.reflectFlash > 0) {
-    ctx.strokeStyle = `rgba(168, 218, 220, ${f.reflectFlash})`;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, f.r + 14, 0, Math.PI * 2);
-    ctx.stroke();
-  }
+  // aura rings for the states worth catching at a glance
+  if (f.gravActive > 0) auraRing(f, "#9d4edd", 22, 0.55);
+  if (f.w.gim === "charge" && f.charge > 0.05) auraRing(f, "#3a86ff", 10, 0.25 + f.charge * 0.6);
+  if (f.reflectFlash > 0) auraRing(f, "#a8dadc", 14, f.reflectFlash);
+  if (f.slowTimer > 0) auraRing(f, "#4cc9f0", 8, 0.5);
 
-  const mode = f.w.attack || "orbit";
-  if (mode === "spike") {
-    // spiker: the body IS the weapon — draw spikes bristling around it
-    const n = 12, len = 9 + f.spikes * 1.4;
-    ctx.fillStyle = f.w.color;
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + state.time * 0.6 * f.spinDir;
-      const bx = f.x + Math.cos(a) * f.r, by = f.y + Math.sin(a) * f.r;
-      const tx = f.x + Math.cos(a) * (f.r + len), ty = f.y + Math.sin(a) * (f.r + len);
-      const px = Math.cos(a + 0.16) * (f.r - 2), py = Math.sin(a + 0.16) * (f.r - 2);
-      const qx = Math.cos(a - 0.16) * (f.r - 2), qy = Math.sin(a - 0.16) * (f.r - 2);
+  drawWeapon(f);
+
+  // body: flat neon fill under a heavy bloom — the signature look
+  glow(col, GLOW.body, () => {
+    ctx.fillStyle = col;
+    bodyPath(f);
+    ctx.fill();
+  });
+  // two satellite blobs orbiting the body, like the reference sims
+  const sa = state.time * 1.6 * f.spinDir;
+  for (const off of [0, Math.PI]) {
+    const bx = f.x + Math.cos(sa + off) * f.r;
+    const by = f.y + Math.sin(sa + off) * f.r;
+    glow(col, GLOW.particle, () => {
+      ctx.fillStyle = col;
       ctx.beginPath();
-      ctx.moveTo(f.x + px, f.y + py);
-      ctx.lineTo(tx, ty);
-      ctx.lineTo(f.x + qx, f.y + qy);
-      ctx.closePath();
+      ctx.arc(bx, by, f.r * 0.22, 0, Math.PI * 2);
       ctx.fill();
-    }
-  } else if (mode === "orbit") {
-    // orbiting weapon: handle + emoji at the tip
-    const t = f.tip();
-    ctx.strokeStyle = "rgba(255,255,255,0.35)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(f.x + Math.cos(f.wAngle) * f.r, f.y + Math.sin(f.wAngle) * f.r);
-    ctx.lineTo(t.x, t.y);
-    ctx.stroke();
-
-    const size = 22 + f.wLen * 0.3;
-    ctx.save();
-    ctx.translate(t.x, t.y);
-    ctx.rotate(f.wAngle + Math.PI / 4);
-    ctx.font = size + "px system-ui";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(f.w.emoji, 0, 0);
-    ctx.restore();
-  } else {
-    // ranged: hold the weapon aimed at the nearest enemy
-    const foe = nearestEnemy(f);
-    const a = foe ? Math.atan2(foe.y - f.y, foe.x - f.x) : 0;
-    ctx.save();
-    ctx.translate(f.x + Math.cos(a) * (f.r + 14), f.y + Math.sin(a) * (f.r + 14));
-    ctx.rotate(a + Math.PI / 4);
-    ctx.font = (22 + f.power * 2) + "px system-ui";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#e8eaf6";
-    ctx.fillText(f.w.emoji, 0, 0);
-    ctx.restore();
+    });
   }
-
-  // body: fighter color fill + side-colored ring
-  const grad = ctx.createRadialGradient(f.x - 8, f.y - 10, 4, f.x, f.y, f.r * 1.2);
-  grad.addColorStop(0, "#ffffff44");
-  grad.addColorStop(1, f.w.color);
-  ctx.fillStyle = grad;
-  bodyPath(f);
-  ctx.fill();
-  ctx.strokeStyle = f.sideColor;
-  ctx.lineWidth = 3.5;
-  bodyPath(f);
-  ctx.stroke();
   if (f.flash > 0) {
     ctx.strokeStyle = `rgba(255,255,255,${f.flash})`;
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 4;
     bodyPath(f);
     ctx.stroke();
   }
 
-  // face
-  ctx.font = Math.round(f.r * 1.05) + "px system-ui";
+  // HP lives inside the body, big — no bars to read
+  const hp = Math.ceil(Math.max(0, f.hp));
+  ctx.font = "900 " + Math.round(f.r * 0.85) + "px system-ui";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const wob = f.key === "drunk" ? Math.sin(state.time * 6) * 4 : 0;
-  ctx.fillText(f.w.face, f.x + wob, f.y + (f.w.body === "tri" ? 8 : 1));
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.strokeText(hp, f.x, f.y);
+  ctx.fillStyle = "#fff";
+  ctx.fillText(hp, f.x, f.y);
+  if (f.level > 1) {
+    ctx.font = "800 11px system-ui";
+    ctx.fillStyle = "#ffcc33";
+    glow("#ffcc33", GLOW.text, () => ctx.fillText("Lv" + f.level, f.x, f.y - f.r - 12));
+  }
   ctx.textBaseline = "alphabetic";
+}
 
-  // royale: floating HP bar + level crown above each head
-  if (state.cfg.mode === "br") {
-    const bw = f.r * 1.8, bx = f.x - bw / 2, by = f.y - f.r - 14;
-    ctx.fillStyle = "rgba(0,0,0,0.45)";
-    roundRectPath(bx, by, bw, 5, 2.5); ctx.fill();
-    ctx.fillStyle = f.sideColor;
-    const r = Math.max(0, f.hp / f.maxHp);
-    if (r > 0) { roundRectPath(bx, by, bw * r, 5, 2.5); ctx.fill(); }
-    if (f.level > 1) {
-      ctx.font = "700 11px system-ui";
-      ctx.fillStyle = "#ffcc33";
-      ctx.textAlign = "center";
-      ctx.fillText("Lv" + f.level, f.x, by - 4);
-    }
-  }
+function auraRing(f, color, pad, alpha) {
+  const pulse = 1 + Math.sin(state.time * 14) * 0.1;
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3;
+  glow(color, GLOW.body, () => {
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, (f.r + pad) * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+}
 
-  if (f.stunTimer > 0) {
-    ctx.font = "20px system-ui";
-    ctx.textAlign = "center";
-    ctx.fillText("💫", f.x, f.y - f.r - 12);
+function drawWeapon(f) {
+  const mode = f.w.attack || "orbit";
+  if (mode === "spike") {
+    const n = 12, len = 9 + f.spikes * 1.4;
+    glow(f.w.color, GLOW.weapon, () => {
+      ctx.fillStyle = f.w.color;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + state.time * 0.6 * f.spinDir;
+        ctx.beginPath();
+        ctx.moveTo(f.x + Math.cos(a + 0.16) * (f.r - 2), f.y + Math.sin(a + 0.16) * (f.r - 2));
+        ctx.lineTo(f.x + Math.cos(a) * (f.r + len), f.y + Math.sin(a) * (f.r + len));
+        ctx.lineTo(f.x + Math.cos(a - 0.16) * (f.r - 2), f.y + Math.sin(a - 0.16) * (f.r - 2));
+        ctx.closePath();
+        ctx.fill();
+      }
+    });
+    return;
   }
+  const aimed = mode !== "orbit";
+  const foe = aimed ? nearestEnemy(f) : null;
+  const ang = aimed ? (foe ? Math.atan2(foe.y - f.y, foe.x - f.x) : 0) : f.wAngle;
+  const reach = aimed ? f.r + 14 : f.r + f.wLen;
+  const tx = f.x + Math.cos(ang) * reach;
+  const ty = f.y + Math.sin(ang) * reach;
+  if (!aimed) {
+    ctx.strokeStyle = f.w.color;
+    ctx.lineWidth = 3;
+    glow(f.w.color, GLOW.weapon, () => {
+      ctx.beginPath();
+      ctx.moveTo(f.x + Math.cos(ang) * f.r, f.y + Math.sin(ang) * f.r);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+    });
+  }
+  ctx.save();
+  ctx.translate(tx, ty);
+  ctx.rotate(ang + Math.PI / 4);
+  ctx.font = (aimed ? 22 + f.power * 2 : 22 + f.wLen * 0.3) + "px system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = f.w.color;
+  ctx.shadowBlur = GLOW.weapon;
+  ctx.fillText(f.w.emoji, 0, 0);
+  ctx.restore();
 }
 
 function drawProjectiles() {
