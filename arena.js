@@ -35,6 +35,7 @@ const HOOK_CD_START = 120;
 const HOOK_CD_AFTER = 600;
 const HOOK_CD_MISS = 480;
 
+const GAME_SPEED = 1.6;         // whole-sim time scale — keeps a match short enough to finish
 const READY_FRAMES = 250;
 const HITSTOP_SWING = 25;       // freeze frames sell the impact
 const HITSTOP_HEAVY = 15;
@@ -85,9 +86,9 @@ const SFX = (() => {
         chargeGain = c.createGain();
         chargeOsc.type = "sawtooth";
         chargeOsc.frequency.setValueAtTime(90, c.currentTime);
-        chargeOsc.frequency.linearRampToValueAtTime(760, c.currentTime + CHARGE_FRAMES / 60);
+        chargeOsc.frequency.linearRampToValueAtTime(760, c.currentTime + CHARGE_FRAMES / (60 * GAME_SPEED));
         chargeGain.gain.setValueAtTime(0.0001, c.currentTime);
-        chargeGain.gain.linearRampToValueAtTime(0.09, c.currentTime + CHARGE_FRAMES / 60);
+        chargeGain.gain.linearRampToValueAtTime(0.09, c.currentTime + CHARGE_FRAMES / (60 * GAME_SPEED));
         chargeOsc.connect(chargeGain).connect(c.destination);
         chargeOsc.start();
       } catch { chargeOsc = null; }
@@ -450,7 +451,7 @@ function tick() {
 
   if ((player.dead || angler.dead) && !over) {
     over = true;
-    clearMs = frame / 60 * 1000;
+    clearMs = frame / (60 * GAME_SPEED) * 1000;
     won = angler.dead && !player.dead;
     awards = [];
     if (won) {
@@ -622,7 +623,7 @@ function drawHud() {
   if (player.stick === "charging") { label = "CHARGING " + Math.round(player.chargeRatio * 100) + "%"; color = COL.charge; }
   else if (player.stick === "swinging") { label = "SWING!"; color = "#fff"; }
   else if (player.stick === "cooldown") {
-    label = "RECOVERING " + (((SWING_COOLDOWN - player.timer) / 60).toFixed(1)) + "s";
+    label = "RECOVERING " + (((SWING_COOLDOWN - player.timer) / (60 * GAME_SPEED)).toFixed(1)) + "s";
     color = "#8b90b3";
   } else { label = "[J] ATTACK READY"; color = "#8bd450"; }
   ctx.fillStyle = color;
@@ -668,7 +669,7 @@ function showResult() {
 const DT = 1000 / 60;
 let last = performance.now(), acc = 0;
 function loop(now) {
-  acc += Math.min(200, now - last);
+  acc += Math.min(200, now - last) * GAME_SPEED;
   last = now;
   while (acc >= DT) { tick(); acc -= DT; }
   draw();
