@@ -1,0 +1,136 @@
+:root {
+  --bg: #05060c;
+  --panel: #101425;
+  --panel2: #1a1f36;
+  --text: #e8eaf6;
+  --muted: #8b90b3;
+  --green: #22CC44;
+  --blue: #88CCFF;
+  --purple: #B040FF;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+header { text-align: center; padding: 16px 12px 10px; }
+h1 { font-size: 1.5rem; letter-spacing: 3px; font-weight: 900; color: var(--green); }
+h1 .vs { color: var(--muted); }
+h1::after { content: ""; }
+.sub { color: var(--muted); font-size: 0.72rem; margin-top: 6px; letter-spacing: 1px; }
+
+main { width: 100%; max-width: 560px; padding: 0 10px 30px; display: flex; flex-direction: column; gap: 14px; }
+
+#stage { position: relative; width: 100%; }
+#game {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #000;
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px #222 , 0 10px 50px rgba(0, 0, 0, .8);
+  touch-action: none;
+}
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, .82);
+  border-radius: 10px;
+}
+#overlay.hidden { display: none; }
+#resultTitle { font-size: 2.2rem; letter-spacing: 4px; font-weight: 900; }
+#resultTime { color: var(--muted); font-size: .95rem; }
+#resultAwards { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+#resultAwards li { color: #ffcc33; font-size: .78rem; }
+
+.btn {
+  border: none;
+  border-radius: 10px;
+  background: var(--panel2);
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 11px 16px;
+  transition: filter .1s, transform .05s;
+}
+.btn:active { transform: translateY(1px); }
+.btn:hover { filter: brightness(1.2); }
+.btn.primary { background: var(--green); color: #06210c; margin-top: 6px; }
+.btn small { font-weight: 700; opacity: .7; font-size: .72em; }
+
+#controls { display: flex; gap: 12px; align-items: stretch; }
+
+/* movement pad — the reference demo is keyboard-only, this keeps it playable on a phone */
+#pad {
+  position: relative;
+  flex: 1;
+  min-height: 132px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(34, 204, 68, .10), transparent 62%),
+    var(--panel);
+  border: 1px solid #232945;
+  touch-action: none;
+  display: grid;
+  place-items: center;
+}
+.pad-hint { color: var(--muted); font-size: .62rem; letter-spacing: 2px; }
+.pad-key {
+  position: absolute;
+  color: #39406a;
+  font-size: .78rem;
+  font-weight: 700;
+}
+.pad-w { top: 10px; left: 50%; transform: translateX(-50%); }
+.pad-s { bottom: 10px; left: 50%; transform: translateX(-50%); }
+.pad-a { left: 14px; top: 50%; transform: translateY(-50%); }
+.pad-d { right: 14px; top: 50%; transform: translateY(-50%); }
+
+.side { display: flex; flex-direction: column; gap: 8px; width: 108px; }
+.btn.attack {
+  flex: 1;
+  background: linear-gradient(160deg, var(--purple), #6a1fb0);
+  color: #fff;
+  font-size: 1.5rem;
+  line-height: 1.1;
+  box-shadow: 0 0 22px rgba(176, 64, 255, .35);
+}
+.btn.attack small { display: block; font-size: .5rem; letter-spacing: 1px; margin-top: 4px; }
+.btn.small { padding: 8px; font-size: 1rem; }
+
+.howto {
+  background: var(--panel);
+  border: 1px solid #1c2138;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.howto h3 { font-size: .78rem; letter-spacing: 2px; color: var(--purple); margin-bottom: 10px; }
+.howto ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.howto li { font-size: .74rem; line-height: 1.5; color: var(--muted); }
+.howto li b { color: var(--text); }
+.credit { margin-top: 12px; font-size: .68rem; color: #5b6180; line-height: 1.6; }
+.credit a { color: var(--blue); }
+
+@media (min-width: 620px) {
+  h1 { font-size: 1.9rem; }
+  #pad { min-height: 150px; }
+}

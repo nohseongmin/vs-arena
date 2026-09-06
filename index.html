@@ -2,157 +2,70 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VS Arena — Weapon Battle Simulator</title>
-  <meta name="description" content="Run the viral weapon battle simulations yourself. Pick two of 18 fighters (teleport, freeze, boomerang, lifesteal), watch physics decide, share the exact battle with a link.">
-  <meta name="theme-color" content="#0d0f1a">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>">
-  <!-- link previews (Reddit / Discord / KakaoTalk / X) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+  <title>Stick vs Angler — Playable Battle Sim</title>
+  <meta name="description" content="Play the weapon battle sim instead of watching it. Charge your stick, land the swing, send the angler pinballing off the walls — before its hook reels you in.">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥍</text></svg>">
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="VS Arena">
-  <meta property="og:title" content="VS Arena — Weapon Battle Simulator">
-  <meta property="og:description" content="Run the viral weapon battle sims yourself. 18 fighters incl. a teleporting phantom, real physics, and share links that replay the exact same battle.">
+  <meta property="og:site_name" content="Stick vs Angler">
+  <meta property="og:title" content="Stick vs Angler — Playable Battle Sim">
+  <meta property="og:description" content="You control the stick. Charge, swing, and send the angler flying — before its bouncing hook drags you back.">
   <meta property="og:url" content="https://nohseongmin.github.io/vs-arena/">
   <meta property="og:image" content="https://nohseongmin.github.io/vs-arena/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="VS Arena — Weapon Battle Simulator">
-  <meta name="twitter:description" content="Pick two fighters. Physics decides. Share the exact battle with a link.">
+  <meta name="twitter:title" content="Stick vs Angler — Playable Battle Sim">
+  <meta name="twitter:description" content="Play the battle sim instead of watching it.">
   <meta name="twitter:image" content="https://nohseongmin.github.io/vs-arena/og.png">
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="arena.css?v=1">
 </head>
 <body>
   <header>
-    <h1>⚔️ VS ARENA</h1>
-    <p class="tagline">1v1 or 6-way royale. Run the sim. Share the battle.</p>
+    <h1>STICK <span class="vs">VS</span> ANGLER</h1>
+    <p class="sub">You drive the stick. The angler is the machine.</p>
   </header>
 
   <main>
     <div id="stage">
-      <canvas id="game" width="405" height="720"></canvas>
+      <canvas id="game" width="550" height="550"></canvas>
       <div id="overlay" class="hidden">
-        <div class="winner-emoji" id="winnerEmoji"></div>
-        <div class="winner-text" id="winnerText"></div>
-        <div class="overlay-buttons">
-          <button id="btnReplay" class="btn secondary">🔁 Replay</button>
-          <button id="btnRematch" class="btn primary">⚔️ Rematch</button>
-          <button id="btnShareOverlay" class="btn secondary">🔗 Share</button>
-        </div>
+        <h2 id="resultTitle">YOU WIN</h2>
+        <p id="resultTime">TIME 0.00s</p>
+        <ul id="resultAwards"></ul>
+        <button id="btnRestart" class="btn primary">↻ PLAY AGAIN &nbsp;<small>[R]</small></button>
       </div>
     </div>
 
     <section id="controls">
-      <div class="mode-tabs">
-        <button id="tabDuel" class="mode-tab active">⚔️ 1V1 DUEL</button>
-        <button id="tabRoyale" class="mode-tab">👑 BATTLE ROYALE</button>
+      <div id="pad" aria-label="Move pad">
+        <span class="pad-hint">DRAG TO MOVE</span>
+        <span class="pad-key pad-w">W</span>
+        <span class="pad-key pad-a">A</span>
+        <span class="pad-key pad-s">S</span>
+        <span class="pad-key pad-d">D</span>
       </div>
-
-      <div id="duelPickers">
-        <div class="picker-row">
-          <div class="picker" id="pickerA">
-            <div class="picker-label side-a">FIGHTER 1</div>
-            <div class="weapon-grid" id="gridA"></div>
-          </div>
-          <div class="vs-label">VS</div>
-          <div class="picker" id="pickerB">
-            <div class="picker-label side-b">FIGHTER 2</div>
-            <div class="weapon-grid" id="gridB"></div>
-          </div>
-        </div>
-      </div>
-
-      <div id="royalePickers" class="hidden">
-        <div class="royale-head">
-          <span class="picker-label">TAP TO ADD (2–6) · <span id="royaleCount">4 fighters</span></span>
-          <button id="btnRandomRoster" class="btn tiny">🎲 Random</button>
-        </div>
-        <div class="weapon-grid roster-grid" id="gridRoyale"></div>
-      </div>
-
-      <div class="sliders">
-        <label>HP <span id="hpVal">100</span>
-          <input type="range" id="hp" min="50" max="300" step="10" value="100">
-        </label>
-        <label>Speed <span id="spdVal">1.0</span>x
-          <input type="range" id="spd" min="0.5" max="3" step="0.1" value="1">
-        </label>
-        <label class="seed-label">Seed
-          <span class="seed-wrap">
-            <input type="number" id="seed" min="0" max="4294967295">
-            <button id="btnDice" class="btn tiny" title="Random seed">🎲</button>
-          </span>
-        </label>
-      </div>
-
-      <div class="action-row">
-        <button id="btnFight" class="btn primary big">▶ FIGHT</button>
-        <button id="btnShare" class="btn secondary big">🔗 Copy Link</button>
-        <button id="btnMute" class="btn secondary" title="Sound on/off">🔊</button>
-      </div>
-      <button id="btnCreate" class="btn secondary wide">🛠️ CREATE YOUR OWN FIGHTER</button>
-    </section>
-
-    <section id="editor" class="hidden">
-      <div class="editor-head">
-        <strong>🛠️ FIGHTER EDITOR</strong>
-        <button id="edClose" class="btn tiny">✕</button>
-      </div>
-
-      <div id="edSaved" class="saved-row"></div>
-
-      <div class="ed-preview">
-        <span id="edPrevEmoji" class="emoji">🙂⭐</span>
-        <span id="edPrevName">CUSTOM</span>
-        <span id="edPrevGim" class="gimmick">no special effect</span>
-      </div>
-
-      <div class="ed-grid">
-        <label>Name<input type="text" id="edName" maxlength="14" placeholder="MY FIGHTER"></label>
-        <label>Weapon<input type="text" id="edEmoji" maxlength="4" placeholder="⭐"></label>
-        <label>Face<input type="text" id="edFace" maxlength="4" placeholder="🙂"></label>
-        <label>Color<input type="color" id="edColor" value="#7ae582"></label>
-        <label>Body<select id="edBody"></select></label>
-        <label>Attack<select id="edAttack"></select></label>
-        <label class="wide-field">Gimmick<select id="edGim"></select></label>
-      </div>
-
-      <div class="sliders ed-stats">
-        <label>Damage <span id="edDmgVal">8</span>
-          <input type="range" id="edDmg" min="3" max="20" step="1" value="8">
-        </label>
-        <div id="edMeleeStats">
-          <label>Spin <span id="edSpinVal">2.6</span>
-            <input type="range" id="edSpin" min="1.2" max="4" step="0.1" value="2.6">
-          </label>
-          <label>Reach <span id="edLenVal">50</span>
-            <input type="range" id="edLen" min="30" max="70" step="1" value="50">
-          </label>
-          <label>Growth <span id="edGrowVal">5</span>
-            <input type="range" id="edGrow" min="0" max="10" step="1" value="5">
-          </label>
-        </div>
-        <div id="edRangedStats" class="hidden">
-          <label>Fire rate <span id="edRateVal">1.9</span>s
-            <input type="range" id="edRate" min="1.2" max="3.2" step="0.1" value="1.9">
-          </label>
-        </div>
-      </div>
-
-      <div class="action-row">
-        <button id="edSave" class="btn primary big">💾 Save fighter</button>
-        <button id="edDelete" class="btn secondary">🗑️</button>
+      <div class="side">
+        <button id="btnAttack" class="btn attack">⚡<br><small>CHARGE<br>[J]</small></button>
+        <button id="btnMute" class="btn small" title="Sound">🔊</button>
       </div>
     </section>
 
-    <div class="ad-slot">AD SLOT (reserved)</div>
+    <section class="howto">
+      <h3>HOW IT WORKS</h3>
+      <ul>
+        <li><b>Charge is a commitment.</b> The swing takes 3 seconds to wind up and fires on its own. Get hooked mid-charge and you lose it.</li>
+        <li><b>One clean hit changes everything.</b> A landed swing does 15 and launches the angler through 7 wall bounces, 2 damage each.</li>
+        <li><b>Watch the hook's path.</b> It ricochets off walls and remembers every corner — when it catches you it drags you back along the whole zigzag, 7 damage per corner.</li>
+        <li><b>You have 100 HP. It has 300.</b> Bumping bodies chips you both.</li>
+      </ul>
+      <p class="credit">Mechanics modelled on the playable demo by
+        <a href="https://www.ooosimulation.fun/" target="_blank" rel="noopener noreferrer">ooosimulation</a>,
+        rebuilt from scratch. · <a href="legacy/">Old auto-battle sim →</a></p>
+    </section>
   </main>
 
-  <footer>
-    <p>Same seed = same battle. Share a link, your friend sees the exact fight.</p>
-  </footer>
-
-  <div id="toast" class="hidden"></div>
-  <script src="game.js?v=16"></script>
+  <script src="arena.js?v=1"></script>
 </body>
 </html>
