@@ -13,6 +13,7 @@ const PLAYER_HP = 100;
 const ANGLER_HP = 300;          // the boss soaks a lot; you have to land swings
 const BODY_DMG = 0.7;           // bumping hurts them both a little
 const BODY_CD = 5;
+const HOOK_HOME_BODY_CD = 15;   // longer breather after the hook reels you in
 
 const CHARGE_FRAMES = 180;      // 3s wind-up — the whole risk of attacking
 const SWING_FRAMES = 12;
@@ -345,7 +346,7 @@ function updateAngler() {
             const push = Math.atan2(player.y - a.y, player.x - a.x);
             player.dx = Math.cos(push) * 12; player.dy = Math.sin(push) * 12;
             a.dx = Math.cos(push + Math.PI) * 4; a.dy = Math.sin(push + Math.PI) * 4;
-            hitStop = HITSTOP_LIGHT; bodyCd = 15;
+            hitStop = HITSTOP_LIGHT; bodyCd = HOOK_HOME_BODY_CD;
           }
         }
       } else { h.x += Math.cos(ang) * HOOK_REEL; h.y += Math.sin(ang) * HOOK_REEL; }
