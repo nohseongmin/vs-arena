@@ -687,6 +687,8 @@ addEventListener("keydown", (e) => {
   if (e.code === "KeyR") restart();
 });
 addEventListener("keyup", (e) => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
+// alt-tab / focus loss eats the keyup, so the held direction would otherwise stick forever
+addEventListener("blur", () => { keys.w = keys.a = keys.s = keys.d = false; });
 
 function attack() {
   SFX.unlock();
