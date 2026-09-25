@@ -717,8 +717,9 @@ function steer(e) {
   keys.w = dy < -dead; keys.s = dy > dead;
 }
 pad.addEventListener("pointerdown", (e) => {
-  padId = e.pointerId; pad.setPointerCapture(padId); steer(e); SFX.unlock();
+  padId = e.pointerId; pad.setPointerCapture(padId); SFX.unlock();
   if (!started) begin();
+  steer(e);
 });
 pad.addEventListener("pointermove", (e) => { if (e.pointerId === padId) steer(e); });
 for (const ev of ["pointerup", "pointercancel"]) {
