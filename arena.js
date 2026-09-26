@@ -55,7 +55,8 @@ const el = (id) => document.getElementById(id);
 
 /* ---------- audio: synthesised, no asset files ---------- */
 const SFX = (() => {
-  let ac = null, muted = localStorage.getItem("ooo_muted") === "1";
+  let ac = null, muted = false;
+  try { muted = localStorage.getItem("ooo_muted") === "1"; } catch { /* storage blocked — default to sound on */ }
   let chargeOsc = null, chargeGain = null;
   const ctxOf = () => {
     if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -110,7 +111,7 @@ const SFX = (() => {
     lose() { [400, 300, 200].forEach((f, i) => setTimeout(() => tone(f, f * 0.7, 0.35, "sawtooth", 0.14), i * 180)); },
     toggle() {
       muted = !muted;
-      localStorage.setItem("ooo_muted", muted ? "1" : "0");
+      try { localStorage.setItem("ooo_muted", muted ? "1" : "0"); } catch { /* storage blocked — keep this page's setting */ }
       if (muted) this.chargeStop();
       return muted;
     },
