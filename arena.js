@@ -646,7 +646,7 @@ function drawTitle() {
 }
 
 function drawCountdown() {
-  const secs = Math.ceil(readyTimer / 60);
+  const secs = Math.ceil(readyTimer / (60 * GAME_SPEED));
   ctx.textAlign = "center";
   ctx.fillStyle = "#fff";
   ctx.font = "900 64px monospace";
