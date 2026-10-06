@@ -718,13 +718,17 @@ function steer(e) {
   keys.w = dy < -dead; keys.s = dy > dead;
 }
 pad.addEventListener("pointerdown", (e) => {
+  if (padId !== null) return;
   padId = e.pointerId; pad.setPointerCapture(padId); SFX.unlock();
   if (!started) begin();
   steer(e);
 });
 pad.addEventListener("pointermove", (e) => { if (e.pointerId === padId) steer(e); });
 for (const ev of ["pointerup", "pointercancel"]) {
-  pad.addEventListener(ev, () => { padId = null; keys.w = keys.a = keys.s = keys.d = false; });
+  pad.addEventListener(ev, (e) => {
+    if (e.pointerId !== padId) return;
+    padId = null; keys.w = keys.a = keys.s = keys.d = false;
+  });
 }
 
 /* ---------- boot ---------- */
