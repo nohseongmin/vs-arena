@@ -1,54 +1,51 @@
-# 🥍 Stick vs Angler — Playable Battle Sim
+# VS Arena
 
-쇼츠에서 유행하는 물리 배틀 시뮬을 관전이 아니라 직접 플레이하는 1v1 듀얼로 만든 웹 시뮬레이터.
-스틱을 조작해 3초짜리 회심의 스윙을 노리고, 벽을 튕기며 쫓아오는 앵글러의 훅을 피한다.
+A browser simulator for weapon-ball battles. Choose fighters, run a match, and share a link that reproduces the same fight.
 
-## 실행 방법
-
-정적 사이트라 서버 아무거나 붙이면 된다:
+## Running locally
 
 ```bash
 cd vs-arena
 python -m http.server 8317
-# 브라우저에서 http://localhost:8317 접속
 ```
 
-배포는 GitHub Pages에 그대로 올리면 끝 (빌드 과정 없음).
+Open `http://localhost:8317`. The project is a static site and can run on GitHub Pages without a build step.
 
-## 기능
+## Features
 
-- WASD로 이동, 스틱은 이동 방향으로 자동 정렬 (조준 불필요)
-- [J] 또는 CHARGE 버튼으로 스윙 충전 시작 — 3초 뒤 자동 발동, 충전 중 피격되면 캔슬
-- 스윙이 적중하면 15 데미지 + 벽 7회 튕기며 튕길 때마다 2 데미지 추가
-- 앵글러의 훅은 벽에 튕기며 지나온 경로(코너)를 기록한다. 플레이어를 낚으면 기록된 경로를 그대로 되짚어 끌고 가며 코너마다 7 데미지
-- 플레이어 100 HP / 앵글러 300 HP, 몸통이 부딪히기만 해도 서로 소량 데미지
-- WebAudio 오실레이터로 합성한 효과음 (오디오 파일 없음, 뮤트 상태는 localStorage에 저장)
-- 모바일 터치패드 지원 (드래그로 이동 + 공격 버튼)
-- 승리 시 FLAWLESS / CLUTCH / SPEEDRUNNER 같은 어워드 표시
+- One-on-one duels and battle royale matches with two to six fighters. Battle royale kills increase size, health, and damage.
+- Eighteen automated fighters. Weapons and projectiles grow as they land hits.
+- A fighter editor for names, icons, colors, bodies, attacks, mechanics, and stats. Up to twelve custom fighters are saved locally, and shared links include their definitions.
+- Adjustable health, simulation speed, and seed. A fixed seed reproduces the match.
+- Synthesized WebAudio effects with a mute control.
+- A mobile layout with a vertical 9:16 arena and reserved ad slots.
 
-## 스택
+| Type | Fighters and mechanics |
+|---|---|
+| Melee | Pickaxe: critical hit every third strike; fishing rod: pull; sword: combos; axe: rage and acceleration; hammer: stun and knockback resistance; trident: life steal; drunk guy: staggering and evasion; gravity guy: gravity field. |
+| Ranged | Archer: predictive shots and kiting; ninja: three-shot bursts; bomber: arcing bombs, area damage, and self-damage risk. |
+| Specialized | Spiker: contact damage and vulnerability to ranged attacks; charger: damage builds up to 3x until hit; knight: reflects projectiles at the shooter with 50% extra damage. |
+| Additional | Phantom: teleportation; frost: slowing and freezing; boomerang: outbound and return hits; vampire: life-stealing bats. |
 
-바닐라 JS + Canvas 2D. 프레임워크/빌드/백엔드 없음.
+Rotating weapons can block projectiles and return bombs. Ranged fighters cannot fire at close range.
 
-## 구조
+Example replay URL: `/?a=hammer&b=trident&hp=100&spd=1&seed=7`.
 
+## Implementation
+
+Vanilla JavaScript and Canvas 2D. No framework, build step, or backend.
+
+```text
+index.html   Interface
+style.css    Styles
+game.js      Physics, game loop, and interface bindings
+BLUEPRINT.md Project scope and design notes
 ```
-vs-arena/
-├── index.html    # 마크업 + UI 골격 (Stick vs Angler)
-├── arena.css     # 스타일
-├── arena.js      # 게임 루프 + 물리 + 렌더 + 입력 (전부)
-├── legacy/       # 예전 "VS 아레나" 관전형 배틀로얄 (18파이터, 커스텀 에디터)
-│   ├── index.html
-│   ├── game.js
-│   └── style.css
-└── BLUEPRINT.md  # 시장분석/BM/보안/로드맵
-```
 
-## 코드 구조 노트
+`GIMMICKS` defines hit behavior, and `SHOTS` defines projectile behavior. The editor uses those tables directly. `burst()` handles particles; its random calls must stay in angle, speed, then lifetime order to preserve reproducible matches.
 
-- `arena.js` 상단 `tuning` 블록(아레나 크기, HP, 타이밍, 데미지 등)에 밸런스 상수가 모여 있다.
-- `Fighter` 클래스가 플레이어/앵글러 공용 상태(위치·체력·스틱 각도)를 갖고, 앵글러만 훅 상태를 담는 `hook` 서브객체를 추가로 갖는다.
-- `updatePlayer()` / `updateAngler()`가 각각 4단계 상태머신을 돈다 — 플레이어는 충전→스윙→쿨다운, 앵글러는 오빗→비행→리드→미스.
-- `SFX`는 오디오 파일 없이 WebAudio 오실레이터로 효과음을 합성한다.
+## Input handling
 
-예전 배틀로얄(18종 파이터, 커스텀 에디터, 공유 링크로 같은 경기 재현)은 `legacy/`로 옮겨졌고, 새 페이지에서 링크로 이어진다.
+URL parameters use allowlists and range checks. Custom fighters pass through `sanitizeCustom`, which checks identifiers, clamps numbers, removes control characters, and limits text lengths, fighter count, and payload size. User text is rendered with `textContent`.
+
+The game collects no accounts, personal information, cookies, or analytics.
