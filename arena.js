@@ -264,7 +264,7 @@ function updatePlayer() {
     trails.push({ angle: p.angle + p.offset, x: p.x, y: p.y, life: 15 });
     if (p.timer === SWING_HIT_FRAME && !angler.dead && !angler.knocked) {
       const reach = Math.hypot(angler.x - p.x, angler.y - p.y) < p.r + SWING_REACH;
-      const facing = Math.abs(diff) < Math.PI / 2;
+      const facing = Math.cos(p.angle) * (angler.x - p.x) + Math.sin(p.angle) * (angler.y - p.y) > 0;
       if (reach && facing) {
         hurt(angler, SWING_DMG);
         launch(angler, p.angle);
