@@ -34,7 +34,7 @@ function assertDirection(direction) {
   assert.equal(vm.runInContext("player.dy", context), 0);
 }
 
-for (const end of ["pointerup", "pointercancel"]) {
+for (const end of ["pointerup", "pointercancel", "lostpointercapture"]) {
   captures.length = 0;
   pointer("pointerdown", 0, 100);
   assertDirection(1);
