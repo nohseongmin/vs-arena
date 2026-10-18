@@ -724,7 +724,7 @@ pad.addEventListener("pointerdown", (e) => {
   steer(e);
 });
 pad.addEventListener("pointermove", (e) => { if (e.pointerId === padId) steer(e); });
-for (const ev of ["pointerup", "pointercancel"]) {
+for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) {
   pad.addEventListener(ev, (e) => {
     if (e.pointerId !== padId) return;
     padId = null; keys.w = keys.a = keys.s = keys.d = false;
