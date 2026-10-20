@@ -14,11 +14,12 @@ const captures = [];
 pad.setPointerCapture = (id) => captures.push(id);
 pad.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
 
+const windowEvents = new EventTarget();
 const context = vm.createContext({
   document: { getElementById: (id) => elements.get(id) },
   localStorage: { getItem: () => "1" },
   performance: { now: () => 0 },
-  addEventListener() {},
+  addEventListener: (...args) => windowEvents.addEventListener(...args),
   requestAnimationFrame() {},
 });
 vm.runInContext("Math.random = () => 0.5;", context);
@@ -61,4 +62,15 @@ for (const end of ["pointerup", "pointercancel", "lostpointercapture"]) {
   assert.deepEqual(captures, [0, 2]);
   pointer(end, 2, 100);
   assertDirection(0);
+}
+
+// Holding restart must not keep resetting the match between fresh key presses.
+for (const repeat of [false, true, false]) {
+  vm.runInContext("hurt(player, 1);", context);
+  const health = vm.runInContext("player.hp", context);
+  const event = new Event("keydown");
+  Object.assign(event, { code: "KeyR", repeat });
+  windowEvents.dispatchEvent(event);
+  assert.equal(vm.runInContext("player.hp", context),
+    repeat ? health : vm.runInContext("PLAYER_HP", context));
 }

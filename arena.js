@@ -685,7 +685,7 @@ const KEYMAP = { KeyW: "w", KeyA: "a", KeyS: "s", KeyD: "d",
 addEventListener("keydown", (e) => {
   if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
   if (e.code === "KeyJ" || e.code === "Space") { attack(); e.preventDefault(); }
-  if (e.code === "KeyR") restart();
+  if (e.code === "KeyR" && !e.repeat) restart();
 });
 addEventListener("keyup", (e) => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
 // alt-tab / focus loss eats the keyup, so the held direction would otherwise stick forever
