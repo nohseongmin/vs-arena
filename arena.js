@@ -437,7 +437,7 @@ function tick() {
   }
   frame++;
   if (hitStop > 0) hitStop--;                 // world freezes, effects keep going
-  else {
+  else if (!over) {
     updatePlayer();
     updateAngler();
     movement(player);
