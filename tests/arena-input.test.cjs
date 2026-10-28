@@ -64,6 +64,20 @@ for (const end of ["pointerup", "pointercancel", "lostpointercapture"]) {
   assertDirection(0);
 }
 
+// Focus loss must stop a drag even when its release event never arrives.
+pointer("pointerdown", 0, 100);
+assertDirection(1);
+windowEvents.dispatchEvent(new Event("blur"));
+assertDirection(0);
+pointer("pointermove", 0, 0);
+assertDirection(0);
+pointer("pointerdown", 1, 0);
+assertDirection(-1);
+pointer("pointerup", 0, 100);
+assertDirection(-1);
+pointer("pointerup", 1, 0);
+assertDirection(0);
+
 // Holding restart must not keep resetting the match between fresh key presses.
 for (const repeat of [false, true, false]) {
   vm.runInContext("hurt(player, 1);", context);
