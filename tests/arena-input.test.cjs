@@ -88,3 +88,43 @@ for (const repeat of [false, true, false]) {
   assert.equal(vm.runInContext("player.hp", context),
     repeat ? health : vm.runInContext("PLAYER_HP", context));
 }
+
+function key(type, code) {
+  const event = new Event(type);
+  Object.assign(event, { code, repeat: false });
+  windowEvents.dispatchEvent(event);
+}
+
+// Either binding must keep moving until the last key for that direction is released.
+for (const [wasd, arrow, axis, direction] of [
+  ["KeyW", "ArrowUp", "dy", -1],
+  ["KeyA", "ArrowLeft", "dx", -1],
+  ["KeyS", "ArrowDown", "dy", 1],
+  ["KeyD", "ArrowRight", "dx", 1],
+]) {
+  const velocity = () => vm.runInContext(`updatePlayer(); Math.sign(player.${axis})`, context);
+  for (const [first, second] of [[wasd, arrow], [arrow, wasd]]) {
+    vm.runInContext("restart();", context);
+    key("keydown", first);
+    key("keydown", first);
+    key("keydown", second);
+    assert.equal(velocity(), direction);
+    key("keyup", first);
+    assert.equal(velocity(), direction);
+    key("keyup", second);
+    assert.equal(velocity(), 0);
+  }
+}
+
+// Reset paths must discard held keys so a later release cannot revive stale input.
+for (const reset of [() => key("keydown", "KeyR"),
+  () => windowEvents.dispatchEvent(new Event("blur"))]) {
+  key("keydown", "KeyD");
+  reset();
+  assertDirection(0);
+  key("keydown", "ArrowRight");
+  assertDirection(1);
+  key("keyup", "ArrowRight");
+  assertDirection(0);
+  key("keyup", "KeyD");
+}

@@ -121,6 +121,7 @@ const SFX = (() => {
 
 /* ---------- state ---------- */
 const keys = { w: false, a: false, s: false, d: false };
+const heldCodes = new Set();
 let player, angler, particles, trails;
 let frame, hitStop, bodyCd, readyTimer, started, over, won, clearMs, awards;
 
@@ -167,6 +168,7 @@ function reset() {
   readyTimer = READY_FRAMES;
   over = false; won = false; clearMs = 0; awards = [];
   keys.w = keys.a = keys.s = keys.d = false;
+  heldCodes.clear();
   SFX.chargeStop();
   SFX.ready();
   el("overlay").classList.add("hidden");
@@ -683,13 +685,21 @@ const KEYMAP = { KeyW: "w", KeyA: "a", KeyS: "s", KeyD: "d",
                  ArrowUp: "w", ArrowLeft: "a", ArrowDown: "s", ArrowRight: "d" };
 
 addEventListener("keydown", (e) => {
-  if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
+  if (KEYMAP[e.code]) {
+    heldCodes.add(e.code); keys[KEYMAP[e.code]] = true; e.preventDefault();
+  }
   if (e.code === "KeyJ" || e.code === "Space") { attack(); e.preventDefault(); }
   if (e.code === "KeyR" && !e.repeat) restart();
 });
-addEventListener("keyup", (e) => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
+addEventListener("keyup", (e) => {
+  if (!KEYMAP[e.code]) return;
+  heldCodes.delete(e.code);
+  keys[KEYMAP[e.code]] = [...heldCodes].some((code) => KEYMAP[code] === KEYMAP[e.code]);
+});
 // alt-tab / focus loss can eat release events, so keys and the pad must not stay held
-addEventListener("blur", () => { padId = null; keys.w = keys.a = keys.s = keys.d = false; });
+addEventListener("blur", () => {
+  padId = null; keys.w = keys.a = keys.s = keys.d = false; heldCodes.clear();
+});
 
 function attack() {
   SFX.unlock();
