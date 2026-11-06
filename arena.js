@@ -121,6 +121,7 @@ const SFX = (() => {
 
 /* ---------- state ---------- */
 const keys = { w: false, a: false, s: false, d: false };
+const padKeys = { w: false, a: false, s: false, d: false };
 const heldCodes = new Set();
 let player, angler, particles, trails;
 let frame, hitStop, bodyCd, readyTimer, started, over, won, clearMs, awards;
@@ -168,6 +169,7 @@ function reset() {
   readyTimer = READY_FRAMES;
   over = false; won = false; clearMs = 0; awards = [];
   keys.w = keys.a = keys.s = keys.d = false;
+  padKeys.w = padKeys.a = padKeys.s = padKeys.d = false;
   heldCodes.clear();
   SFX.chargeStop();
   SFX.ready();
@@ -219,10 +221,10 @@ function updatePlayer() {
   if (!p.knocked && !pulled) {
     // WASD drives velocity directly — no inertia, so the arena feels tight
     let ax = 0, ay = 0;
-    if (keys.w) ay -= SPEED;
-    if (keys.s) ay += SPEED;
-    if (keys.a) ax -= SPEED;
-    if (keys.d) ax += SPEED;
+    if (keys.w || padKeys.w) ay -= SPEED;
+    if (keys.s || padKeys.s) ay += SPEED;
+    if (keys.a || padKeys.a) ax -= SPEED;
+    if (keys.d || padKeys.d) ax += SPEED;
     if (ax && ay) {
       const len = Math.hypot(ax, ay);
       ax = ax / len * SPEED; ay = ay / len * SPEED;
@@ -699,6 +701,7 @@ addEventListener("keyup", (e) => {
 // alt-tab / focus loss can eat release events, so keys and the pad must not stay held
 addEventListener("blur", () => {
   padId = null; keys.w = keys.a = keys.s = keys.d = false; heldCodes.clear();
+  padKeys.w = padKeys.a = padKeys.s = padKeys.d = false;
 });
 
 function attack() {
@@ -724,8 +727,8 @@ function steer(e) {
   const dx = e.clientX - (r.left + r.width / 2);
   const dy = e.clientY - (r.top + r.height / 2);
   const dead = r.width * 0.14;
-  keys.a = dx < -dead; keys.d = dx > dead;
-  keys.w = dy < -dead; keys.s = dy > dead;
+  padKeys.a = dx < -dead; padKeys.d = dx > dead;
+  padKeys.w = dy < -dead; padKeys.s = dy > dead;
 }
 pad.addEventListener("pointerdown", (e) => {
   if (padId !== null) return;
@@ -737,7 +740,7 @@ pad.addEventListener("pointermove", (e) => { if (e.pointerId === padId) steer(e)
 for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) {
   pad.addEventListener(ev, (e) => {
     if (e.pointerId !== padId) return;
-    padId = null; keys.w = keys.a = keys.s = keys.d = false;
+    padId = null; padKeys.w = padKeys.a = padKeys.s = padKeys.d = false;
   });
 }
 
