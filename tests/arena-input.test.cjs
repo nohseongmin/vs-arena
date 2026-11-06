@@ -25,9 +25,9 @@ const context = vm.createContext({
 vm.runInContext("Math.random = () => 0.5;", context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "arena.js"), "utf8"), context);
 
-function pointer(type, pointerId, clientX) {
+function pointer(type, pointerId, clientX, clientY = 50) {
   const event = new Event(type);
-  Object.assign(event, { pointerId, clientX, clientY: 50 });
+  Object.assign(event, { pointerId, clientX, clientY });
   pad.dispatchEvent(event);
 }
 function assertDirection(direction) {
@@ -127,4 +127,45 @@ for (const reset of [() => key("keydown", "KeyR"),
   key("keyup", "ArrowRight");
   assertDirection(0);
   key("keyup", "KeyD");
+}
+
+// Keyboard and pad releases must not discard movement still held by the other input.
+for (const [wasd, arrow, axis, direction, x, y] of [
+  ["KeyW", "ArrowUp", "dy", -1, 50, 0],
+  ["KeyA", "ArrowLeft", "dx", -1, 0, 50],
+  ["KeyS", "ArrowDown", "dy", 1, 50, 100],
+  ["KeyD", "ArrowRight", "dx", 1, 100, 50],
+]) {
+  const velocity = () => vm.runInContext(`updatePlayer(); Math.sign(player.${axis})`, context);
+  for (const code of [wasd, arrow]) {
+    for (const end of ["pointerup", "pointercancel", "lostpointercapture"]) {
+      vm.runInContext("restart();", context);
+      key("keydown", code);
+      pointer("pointerdown", 0, 50, 50);
+      assert.equal(velocity(), direction);
+      pointer("pointermove", 0, 100 - x, 100 - y);
+      assert.equal(velocity(), 0);
+      pointer("pointermove", 0, x, y);
+      key("keyup", code);
+      assert.equal(velocity(), direction);
+      key("keydown", code);
+      pointer(end, 0, x, y);
+      assert.equal(velocity(), direction);
+      key("keyup", code);
+      assert.equal(velocity(), 0);
+    }
+  }
+}
+
+// Restart and focus loss must clear both input sources together.
+for (const reset of [() => key("keydown", "KeyR"),
+  () => windowEvents.dispatchEvent(new Event("blur"))]) {
+  key("keydown", "KeyD");
+  pointer("pointerdown", 0, 100);
+  reset();
+  assertDirection(0);
+  key("keyup", "KeyD");
+  assertDirection(0);
+  pointer("pointerup", 0, 100);
+  assertDirection(0);
 }
