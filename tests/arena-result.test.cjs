@@ -19,6 +19,7 @@ const context = vm.createContext({
   performance: { now: () => 0 },
   addEventListener() {},
   requestAnimationFrame() {},
+  setTimeout() {},
 });
 vm.runInContext("Math.random = () => 0.5;", context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "arena.js"), "utf8"), context);
