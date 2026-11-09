@@ -382,10 +382,10 @@ function movement(f) {
   f.x += f.dx; f.y += f.dy;
 
   let wall = false;
-  if (f.x + f.r >= ARENA) { f.x = ARENA - f.r; f.dx = -Math.abs(f.dx); wall = true; }
-  if (f.x - f.r <= 0) { f.x = f.r; f.dx = Math.abs(f.dx); wall = true; }
-  if (f.y + f.r >= ARENA) { f.y = ARENA - f.r; f.dy = -Math.abs(f.dy); wall = true; }
-  if (f.y - f.r <= 0) { f.y = f.r; f.dy = Math.abs(f.dy); wall = true; }
+  if (f.x + f.r > ARENA) { f.x = ARENA - f.r; f.dx = -Math.abs(f.dx); wall = true; }
+  if (f.x - f.r < 0) { f.x = f.r; f.dx = Math.abs(f.dx); wall = true; }
+  if (f.y + f.r > ARENA) { f.y = ARENA - f.r; f.dy = -Math.abs(f.dy); wall = true; }
+  if (f.y - f.r < 0) { f.y = f.r; f.dy = Math.abs(f.dy); wall = true; }
 
   if (wall && f.knocked) {
     f.bounces--;

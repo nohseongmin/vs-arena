@@ -47,3 +47,37 @@ for (const [name, angle, key, offset, hit] of [
     hit ? vm.runInContext("SWING_DMG", context) : 0, name);
   assert.equal(vm.runInContext("angler.knocked", context), hit, name);
 }
+
+const { R, ARENA, SWING_LAUNCH, SWING_BOUNCES, WALL_DMG } = vm.runInContext(
+  "({ R, ARENA, SWING_LAUNCH, SWING_BOUNCES, WALL_DMG })", context);
+
+// Sliding along a wall must not spend ricochets; crossing it must still reflect and hurt.
+for (const [name, x, y, dx, dy, hitDx, hitDy] of [
+  ["left wall", R, ARENA / 2, 0, SWING_LAUNCH, -SWING_LAUNCH, 0],
+  ["right wall", ARENA - R, ARENA / 2, 0, SWING_LAUNCH, SWING_LAUNCH, 0],
+  ["top wall", ARENA / 2, R, SWING_LAUNCH, 0, 0, -SWING_LAUNCH],
+  ["bottom wall", ARENA / 2, ARENA - R, SWING_LAUNCH, 0, 0, SWING_LAUNCH],
+]) {
+  context.wallCase = { x, y, dx, dy, hitDx, hitDy };
+  vm.runInContext(`
+    reset();
+    launch(angler, 0);
+    Object.assign(angler, wallCase);
+    movement(angler);
+  `, context);
+  assert.equal(vm.runInContext("angler.hp", context), vm.runInContext("ANGLER_HP", context), name);
+  assert.equal(vm.runInContext("angler.bounces", context), SWING_BOUNCES, name);
+  assert.equal(vm.runInContext("angler.x", context), x + dx, name);
+  assert.equal(vm.runInContext("angler.y", context), y + dy, name);
+
+  vm.runInContext(`
+    angler.dx = wallCase.hitDx; angler.dy = wallCase.hitDy;
+    movement(angler);
+  `, context);
+  assert.equal(vm.runInContext("ANGLER_HP - angler.hp", context), WALL_DMG, name);
+  assert.equal(vm.runInContext("angler.bounces", context), SWING_BOUNCES - 1, name);
+  assert.equal(vm.runInContext("angler.x", context), x + dx, name);
+  assert.equal(vm.runInContext("angler.y", context), y + dy, name);
+  if (hitDx) assert.equal(vm.runInContext("angler.dx", context), -hitDx, name);
+  if (hitDy) assert.equal(vm.runInContext("angler.dy", context), -hitDy, name);
+}
